@@ -1,6 +1,6 @@
 // ============================================================
-// Автосервис Админ v3.0 — Mini App для Telegram
-// Выбор клиента и авто через кнопки (надёжнее, чем select)
+// Автосервис Админ v4.0 — Mini App для Telegram
+// Полное редактирование клиентов (имя, телефон, авто) и заказов
 // ============================================================
 
 const tg = window.Telegram?.WebApp;
@@ -13,11 +13,19 @@ let dataVersion = 0;
 let tempCars = [];
 let tempExpenses = [];
 
-// Выбранные в данный момент клиент и авто (для формы заказа)
+// Состояния выбора для формы нового заказа
 let selectedClientIdx = null;
 let selectedCarIdx = null;
 
-// ---------- Загрузка/Сохранение ----------
+// Состояния редактирования
+let editClientIdx = null;     // индекс редактируемого клиента
+let editClientCars = [];      // временный список авто при редактировании
+let editOrderIdx = null;      // индекс редактируемого заказа
+let editOrderExpenses = [];   // временный список расходов при редактировании
+
+// ============================================================
+//  ХРАНИЛИЩЕ
+// ============================================================
 function loadFromLocal() {
     try {
         const saved = localStorage.getItem('autoservice_data');
@@ -56,7 +64,9 @@ function setStatus(text) {
     if (el) el.textContent = text;
 }
 
-// ---------- Временные списки: АВТО ----------
+// ============================================================
+//  ВРЕМЕННЫЕ СПИСКИ (форма нового клиента / заказа)
+// ============================================================
 function addCarToList() {
     const model = document.getElementById('carModel').value.trim();
     const plate = document.getElementById('carPlate').value.trim();
@@ -81,7 +91,6 @@ function renderTempCars() {
     `).join('');
 }
 
-// ---------- Временные списки: РАСХОДЫ ----------
 function addExpenseToList() {
     const desc = document.getElementById('expenseDesc').value.trim();
     const amount = parseFloat(document.getElementById('expenseAmount').value) || 0;
@@ -112,7 +121,9 @@ function renderTempExpenses() {
     `;
 }
 
-// ---------- Клиенты ----------
+// ============================================================
+//  КЛИЕНТЫ — добавление
+// ============================================================
 function addClient() {
     const name = document.getElementById('clientName').value.trim();
     const phone = document.getElementById('clientPhone').value.trim();
@@ -130,19 +141,76 @@ function addClient() {
     setStatus('Клиент добавлен');
 }
 
+// ============================================================
+//  КЛИЕНТЫ — удаление
+// ============================================================
 function deleteClient(index) {
     if (!confirm('Удалить клиента?')) return;
-    if (selectedClientIdx === index) {
-        selectedClientIdx = null;
-        selectedCarIdx = null;
-    } else if (selectedClientIdx !== null && selectedClientIdx > index) {
-        selectedClientIdx--;
-    }
+    if (selectedClientIdx === index) { selectedClientIdx = null; selectedCarIdx = null; }
+    else if (selectedClientIdx !== null && selectedClientIdx > index) selectedClientIdx--;
+    if (editClientIdx === index) editClientIdx = null;
+    else if (editClientIdx !== null && editClientIdx > index) editClientIdx--;
     clients.splice(index, 1);
     saveToLocal();
     renderAll();
 }
 
+// ============================================================
+//  КЛИЕНТЫ — редактирование
+// ============================================================
+function startEditClient(i) {
+    editClientIdx = i;
+    editClientCars = JSON.parse(JSON.stringify(clients[i].cars || []));
+    renderClients();
+}
+
+function cancelEditClient() {
+    editClientIdx = null;
+    editClientCars = [];
+    renderClients();
+}
+
+function saveEditClient() {
+    const name = document.getElementById(`editName_${editClientIdx}`).value.trim();
+    const phone = document.getElementById(`editPhone_${editClientIdx}`).value.trim();
+    if (!name) { alert('Введите ФИО'); return; }
+    if (editClientCars.length === 0) { alert('Добавьте хотя бы одно авто'); return; }
+
+    // Сохраняем состояния пикеров
+    const prevSelectedClient = selectedClientIdx;
+    const prevSelectedCar = selectedCarIdx;
+
+    clients[editClientIdx].name = name;
+    clients[editClientIdx].phone = phone;
+    clients[editClientIdx].cars = [...editClientCars];
+
+    editClientIdx = null;
+    editClientCars = [];
+
+    // Сбрасываем выбор, если авто изменилось
+    selectedClientIdx = null;
+    selectedCarIdx = null;
+    saveToLocal();
+    renderAll();
+    setStatus('Клиент обновлён');
+}
+
+function addEditCar() {
+    const model = document.getElementById(`editCarModel_${editClientIdx}`).value.trim();
+    const plate = document.getElementById(`editCarPlate_${editClientIdx}`).value.trim();
+    if (!model) { alert('Введите марку и модель'); return; }
+    editClientCars.push({ model, plate });
+    renderClients();
+}
+
+function removeEditCar(idx) {
+    editClientCars.splice(idx, 1);
+    renderClients();
+}
+
+// ============================================================
+//  РЕНДЕР КЛИЕНТОВ
+// ============================================================
 function renderClients() {
     const container = document.getElementById('clientsList');
     if (!container) return;
@@ -150,35 +218,75 @@ function renderClients() {
         container.innerHTML = '<div class="empty">Нет клиентов</div>';
         return;
     }
-    container.innerHTML = clients.map((c, i) => `
-        <div class="client-card">
-            <div class="client-header">
+
+    container.innerHTML = clients.map((c, i) => {
+        // Режим редактирования
+        if (editClientIdx === i) {
+            return `
+            <div class="card" style="border-color:#ffc107;">
+                <div class="card-header">
+                    <strong>✏️ Редактирование</strong>
+                </div>
+                <label>ФИО:</label>
+                <input type="text" id="editName_${i}" value="${escapeAttr(c.name)}" />
+                <label>Телефон:</label>
+                <input type="tel" id="editPhone_${i}" value="${escapeAttr(c.phone || '')}" />
+
+                <div class="sub-section">
+                    <div class="sub-title">🚗 Автомобили</div>
+                    ${editClientCars.map((car, idx) => `
+                        <div class="car-line">
+                            <span class="car-info">🚗 ${escapeHtml(car.model)}${car.plate ? ` · ${escapeHtml(car.plate)}` : ''}</span>
+                            <button class="btn-icon delete" onclick="removeEditCar(${idx})">✕</button>
+                        </div>
+                    `).join('')}
+                    <div style="margin-top:8px;">
+                        <input type="text" id="editCarModel_${i}" placeholder="Марка, модель (новое авто)" />
+                        <input type="text" id="editCarPlate_${i}" placeholder="Гос. номер (необязательно)" />
+                        <button class="btn-secondary" onclick="addEditCar()">➕ Добавить авто</button>
+                    </div>
+                </div>
+
+                <button class="btn-success" onclick="saveEditClient()">✓ Сохранить</button>
+                <button class="btn-secondary" onclick="cancelEditClient()">Отмена</button>
+            </div>
+            `;
+        }
+
+        // Обычный режим
+        return `
+        <div class="card">
+            <div class="card-header">
                 <div>
                     <strong>${escapeHtml(c.name)}</strong>
                     <small>${escapeHtml(c.phone || 'без телефона')}</small>
                 </div>
-                <button class="delete-btn" onclick="deleteClient(${i})">✕</button>
+                <div class="card-actions">
+                    <button class="btn-icon edit" onclick="startEditClient(${i})">✏️</button>
+                    <button class="btn-icon delete" onclick="deleteClient(${i})">✕</button>
+                </div>
             </div>
-            <div class="client-cars">
+            <div>
                 ${(c.cars || []).map(car =>
-                    `<div>🚗 ${escapeHtml(car.model)}${car.plate ? ` · ${escapeHtml(car.plate)}` : ''}</div>`
+                    `<div class="car-line"><span class="car-info">🚗 ${escapeHtml(car.model)}${car.plate ? ` · ${escapeHtml(car.plate)}` : ''}</span></div>`
                 ).join('')}
             </div>
         </div>
-    `).join('');
+        `;
+    }).join('');
 }
 
-// ---------- Пикер клиентов (кнопки) ----------
+// ============================================================
+//  ПИКЕР КЛИЕНТОВ
+// ============================================================
 function renderClientPicker() {
     const el = document.getElementById('clientPicker');
     if (!el) return;
-
     if (clients.length === 0) {
         el.innerHTML = '<div class="empty">Сначала добавьте клиента</div>';
         selectedClientIdx = null;
         return;
     }
-
     el.innerHTML = clients.map((c, i) => `
         <button class="picker-btn ${selectedClientIdx === i ? 'active' : ''}"
                 onclick="selectClient(${i})">
@@ -196,16 +304,15 @@ function selectClient(idx) {
     updateOrderFormVisibility();
 }
 
-// ---------- Пикер авто (кнопки) ----------
+// ============================================================
+//  ПИКЕР АВТО
+// ============================================================
 function renderCarPicker() {
     const section = document.getElementById('carPickerSection');
     const el = document.getElementById('carPicker');
     if (!section || !el) return;
 
-    if (selectedClientIdx === null) {
-        section.style.display = 'none';
-        return;
-    }
+    if (selectedClientIdx === null) { section.style.display = 'none'; return; }
 
     const client = clients[selectedClientIdx];
     const cars = client.cars || [];
@@ -215,7 +322,6 @@ function renderCarPicker() {
         el.innerHTML = '<div class="empty">У клиента нет авто</div>';
         return;
     }
-
     section.style.display = 'block';
     el.innerHTML = cars.map((car, i) => `
         <button class="picker-btn ${selectedCarIdx === i ? 'active' : ''}"
@@ -232,18 +338,15 @@ function selectCar(idx) {
     updateOrderFormVisibility();
 }
 
-// ---------- Показ формы заказа ----------
 function updateOrderFormVisibility() {
     const form = document.getElementById('orderFormSection');
     if (!form) return;
-    if (selectedClientIdx !== null && selectedCarIdx !== null) {
-        form.style.display = 'block';
-    } else {
-        form.style.display = 'none';
-    }
+    form.style.display = (selectedClientIdx !== null && selectedCarIdx !== null) ? 'block' : 'none';
 }
 
-// ---------- Заказы ----------
+// ============================================================
+//  ЗАКАЗЫ — добавление
+// ============================================================
 function addOrder() {
     if (selectedClientIdx === null) { alert('Выберите клиента'); return; }
     if (selectedCarIdx === null) { alert('Выберите автомобиль'); return; }
@@ -275,7 +378,6 @@ function addOrder() {
     document.getElementById('orderPrepayment').value = '';
     renderTempExpenses();
 
-    // Сбрасываем выбор
     selectedClientIdx = null;
     selectedCarIdx = null;
     renderClientPicker();
@@ -287,14 +389,72 @@ function addOrder() {
     setStatus('Заказ добавлен');
 }
 
+// ============================================================
+//  ЗАКАЗЫ — удаление
+// ============================================================
 function deleteOrder(index) {
     if (!confirm('Удалить заказ?')) return;
+    if (editOrderIdx === index) editOrderIdx = null;
+    else if (editOrderIdx !== null && editOrderIdx > index) editOrderIdx--;
     orders.splice(index, 1);
     saveToLocal();
     renderAll();
 }
 
-// ---------- Дедлайн ----------
+// ============================================================
+//  ЗАКАЗЫ — редактирование
+// ============================================================
+function startEditOrder(i) {
+    editOrderIdx = i;
+    editOrderExpenses = JSON.parse(JSON.stringify(orders[i].expenses || []));
+    renderOrders();
+}
+
+function cancelEditOrder() {
+    editOrderIdx = null;
+    editOrderExpenses = [];
+    renderOrders();
+}
+
+function saveEditOrder() {
+    const o = orders[editOrderIdx];
+    const work = document.getElementById(`editWork_${editOrderIdx}`).value.trim();
+    const cost = parseFloat(document.getElementById(`editCost_${editOrderIdx}`).value) || 0;
+    const deadline = document.getElementById(`editDeadline_${editOrderIdx}`).value;
+    const prepayment = parseFloat(document.getElementById(`editPrepayment_${editOrderIdx}`).value) || 0;
+
+    if (!work) { alert('Введите описание работ'); return; }
+
+    o.work = work;
+    o.cost = cost;
+    o.deadline = deadline;
+    o.prepayment = prepayment;
+    o.expenses = [...editOrderExpenses];
+
+    editOrderIdx = null;
+    editOrderExpenses = [];
+    saveToLocal();
+    renderAll();
+    setStatus('Заказ обновлён');
+}
+
+function addEditOrderExpense() {
+    const desc = document.getElementById(`editExpDesc_${editOrderIdx}`).value.trim();
+    const amount = parseFloat(document.getElementById(`editExpAmount_${editOrderIdx}`).value) || 0;
+    if (!desc) { alert('Введите описание расхода'); return; }
+    if (amount <= 0) { alert('Введите сумму больше нуля'); return; }
+    editOrderExpenses.push({ desc, amount });
+    renderOrders();
+}
+
+function removeEditOrderExpense(idx) {
+    editOrderExpenses.splice(idx, 1);
+    renderOrders();
+}
+
+// ============================================================
+//  ДЕДЛАЙН
+// ============================================================
 function getDeadlineInfo(deadline) {
     if (!deadline) return { text: 'без срока', cls: '' };
     const today = new Date(); today.setHours(0,0,0,0);
@@ -307,6 +467,9 @@ function getDeadlineInfo(deadline) {
     return { text: formatted, cls: 'ok' };
 }
 
+// ============================================================
+//  РЕНДЕР ЗАКАЗОВ
+// ============================================================
 function renderOrders() {
     const container = document.getElementById('ordersList');
     if (!container) return;
@@ -314,19 +477,72 @@ function renderOrders() {
         container.innerHTML = '<div class="empty">Нет заказов</div>';
         return;
     }
+
     container.innerHTML = orders.map((o, i) => {
+        // Режим редактирования
+        if (editOrderIdx === i) {
+            const expensesTotal = editOrderExpenses.reduce((s, e) => s + e.amount, 0);
+            return `
+            <div class="card" style="border-color:#ffc107;">
+                <div class="card-header">
+                    <strong>✏️ Редактирование заказа</strong>
+                </div>
+                <small style="color:#888; font-size:12px; display:block; margin-bottom:8px;">
+                    👤 ${escapeHtml(o.clientName)} · 🚗 ${escapeHtml(o.carModel)}${o.carPlate ? ` (${escapeHtml(o.carPlate)})` : ''}
+                </small>
+
+                <label>Описание работ:</label>
+                <input type="text" id="editWork_${i}" value="${escapeAttr(o.work)}" />
+
+                <label>Стоимость работ (руб.):</label>
+                <input type="number" id="editCost_${i}" value="${o.cost || 0}" />
+
+                <label>Срок выполнения:</label>
+                <input type="date" id="editDeadline_${i}" value="${o.deadline || ''}" />
+
+                <label>Предоплата (руб.):</label>
+                <input type="number" id="editPrepayment_${i}" value="${o.prepayment || 0}" />
+
+                <div class="sub-section">
+                    <div class="sub-title">💸 Расходы</div>
+                    ${editOrderExpenses.map((e, idx) => `
+                        <div class="temp-item">
+                            <span>${escapeHtml(e.desc)} — ${e.amount.toFixed(0)} ₽</span>
+                            <button onclick="removeEditOrderExpense(${idx})">✕</button>
+                        </div>
+                    `).join('')}
+                    <div style="font-size:12px; color:#888; text-align:right; padding:2px 8px 6px 0;">
+                        Итого: <b>${expensesTotal.toFixed(0)} ₽</b>
+                    </div>
+                    <input type="text" id="editExpDesc_${i}" placeholder="Новый расход" />
+                    <input type="number" id="editExpAmount_${i}" placeholder="Сумма (руб.)" />
+                    <button class="btn-secondary" onclick="addEditOrderExpense()">➕ Добавить расход</button>
+                </div>
+
+                <button class="btn-success" onclick="saveEditOrder()">✓ Сохранить</button>
+                <button class="btn-secondary" onclick="cancelEditOrder()">Отмена</button>
+            </div>
+            `;
+        }
+
+        // Обычный режим
         const expensesTotal = (o.expenses || []).reduce((s, e) => s + e.amount, 0);
         const profit = (o.cost || 0) - expensesTotal;
         const dl = getDeadlineInfo(o.deadline);
+
         return `
-        <div class="order-card">
-            <div class="order-header">
+        <div class="card">
+            <div class="card-header">
                 <div>
                     <strong>${escapeHtml(o.work)}</strong>
                     <small>👤 ${escapeHtml(o.clientName)} · 🚗 ${escapeHtml(o.carModel)}${o.carPlate ? ` (${escapeHtml(o.carPlate)})` : ''}</small>
                 </div>
-                <button class="delete-btn" onclick="deleteOrder(${i})">✕</button>
+                <div class="card-actions">
+                    <button class="btn-icon edit" onclick="startEditOrder(${i})">✏️</button>
+                    <button class="btn-icon delete" onclick="deleteOrder(${i})">✕</button>
+                </div>
             </div>
+
             <div class="order-row">
                 <span class="label">Срок:</span>
                 <span><span class="badge ${dl.cls}">${dl.text}</span></span>
@@ -343,6 +559,7 @@ function renderOrders() {
                 <span class="label">К доплате:</span>
                 <span>${((o.cost || 0) - (o.prepayment || 0)).toFixed(0)} ₽</span>
             </div>
+
             ${(o.expenses && o.expenses.length > 0) ? `
                 <div class="order-expenses">
                     <div style="font-size:11px; color:#888; margin-bottom:4px;">Расходы:</div>
@@ -358,6 +575,7 @@ function renderOrders() {
                     </div>
                 </div>
             ` : ''}
+
             <div class="order-total">
                 Прибыль: <span class="${profit >= 0 ? 'profit' : 'loss'}">${profit.toFixed(0)} ₽</span>
             </div>
@@ -366,11 +584,15 @@ function renderOrders() {
     }).join('');
 }
 
-// ---------- Очистка ----------
+// ============================================================
+//  ОЧИСТКА
+// ============================================================
 function clearAll() {
     if (!confirm('Удалить ВСЕ данные? Это действие необратимо!')) return;
     clients = []; orders = []; tempCars = []; tempExpenses = [];
     selectedClientIdx = null; selectedCarIdx = null;
+    editClientIdx = null; editClientCars = [];
+    editOrderIdx = null; editOrderExpenses = [];
     dataVersion = 0;
     saveToLocal();
     renderAll();
@@ -433,6 +655,12 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
+// Для value="" в input — экранируем кавычки
+function escapeAttr(text) {
+    if (text === undefined || text === null) return '';
+    return String(text).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 function renderAll() {
     renderClients();
     renderClientPicker();
@@ -448,4 +676,4 @@ function renderAll() {
 loadFromLocal();
 renderAll();
 setStatus('Готово');
-console.log('🔧 Автосервис Админ v3.0 запущен');
+console.log('🔧 Автосервис Админ v4.0 запущен');
