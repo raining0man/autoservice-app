@@ -5,13 +5,13 @@
 
 // ---------- КОНФИГ FIREBASE ----------
 const firebaseConfig = {
-  apiKey: "AIzaSyABM5s_1e0172SV8ICquhoyqZ1s0J8RZ2w",
+  apiKey: "AIzaSyABMtS_Ix0172SV8ICquhoytqZ1sDJ8RZw",
   authDomain: "menu-auto-e79d2.firebaseapp.com",
   projectId: "menu-auto-e79d2",
   storageBucket: "menu-auto-e79d2.firebasestorage.app",
   messagingSenderId: "398535584228",
-  appId: "1:398535584228:web:157d7915f0c388999983f1",
-  measurementId: "G-LYWD048M4P"
+  appId: "1:398535584228:web:157d79f5f0c38899983ff1",
+  measurementId: "G-LHYD04M8FM"
 };
 
 // ---------- ИНИЦИАЛИЗАЦИЯ ----------
