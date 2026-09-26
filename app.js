@@ -1,29 +1,22 @@
-// ============================================================
 // Автосервис Админ v5.0 — Mini App для Telegram
-// Полное редактирование клиентов (включая каждое авто) и заказов
-// ============================================================
+// Безопасная версия escapeAttr (без HTML-сущностей в коде)
 
 const tg = window.Telegram?.WebApp;
 if (tg) { tg.ready(); tg.expand(); }
 
-// ---------- Данные ----------
 let clients = [];
 let orders = [];
 let dataVersion = 0;
 let tempCars = [];
 let tempExpenses = [];
-
 let selectedClientIdx = null;
 let selectedCarIdx = null;
-
 let editClientIdx = null;
 let editClientCars = [];
 let editOrderIdx = null;
 let editOrderExpenses = [];
 
-// ============================================================
-//  ХРАНИЛИЩЕ
-// ============================================================
+// ---------- ХРАНИЛИЩЕ ----------
 function loadFromLocal() {
     try {
         const saved = localStorage.getItem('autoservice_data');
@@ -54,7 +47,7 @@ function saveToLocal() {
 
 function updateVersionDisplay() {
     const el = document.getElementById('versionText');
-    if (el) el.textContent = `v${dataVersion}`;
+    if (el) el.textContent = 'v' + dataVersion;
 }
 
 function setStatus(text) {
@@ -62,9 +55,7 @@ function setStatus(text) {
     if (el) el.textContent = text;
 }
 
-// ============================================================
-//  ВРЕМЕННЫЕ СПИСКИ (форма нового клиента / заказа)
-// ============================================================
+// ---------- ВРЕМЕННЫЕ СПИСКИ ----------
 function addCarToList() {
     const model = document.getElementById('carModel').value.trim();
     const plate = document.getElementById('carPlate').value.trim();
@@ -83,7 +74,7 @@ function renderTempCars() {
     if (tempCars.length === 0) { el.innerHTML = ''; return; }
     el.innerHTML = tempCars.map((c, i) => `
         <div class="temp-item">
-            <span>🚗 ${escapeHtml(c.model)}${c.plate ? ` (${escapeHtml(c.plate)})` : ''}</span>
+            <span>🚗 ${escapeHtml(c.model)}${c.plate ? ' (' + escapeHtml(c.plate) + ')' : ''}</span>
             <button onclick="removeCarFromList(${i})">✕</button>
         </div>
     `).join('');
@@ -119,9 +110,7 @@ function renderTempExpenses() {
     `;
 }
 
-// ============================================================
-//  КЛИЕНТЫ — добавление
-// ============================================================
+// ---------- КЛИЕНТЫ — ДОБАВЛЕНИЕ ----------
 function addClient() {
     const name = document.getElementById('clientName').value.trim();
     const phone = document.getElementById('clientPhone').value.trim();
@@ -139,9 +128,7 @@ function addClient() {
     setStatus('Клиент добавлен');
 }
 
-// ============================================================
-//  КЛИЕНТЫ — удаление
-// ============================================================
+// ---------- КЛИЕНТЫ — УДАЛЕНИЕ ----------
 function deleteClient(index) {
     if (!confirm('Удалить клиента?')) return;
     if (selectedClientIdx === index) { selectedClientIdx = null; selectedCarIdx = null; }
@@ -153,9 +140,7 @@ function deleteClient(index) {
     renderAll();
 }
 
-// ============================================================
-//  КЛИЕНТЫ — редактирование
-// ============================================================
+// ---------- КЛИЕНТЫ — РЕДАКТИРОВАНИЕ ----------
 function startEditClient(i) {
     editClientIdx = i;
     editClientCars = JSON.parse(JSON.stringify(clients[i].cars || []));
@@ -168,37 +153,36 @@ function cancelEditClient() {
     renderClients();
 }
 
-// Обновление поля существующего авто (без перерисовки)
 function updateEditCar(idx, field, value) {
     if (editClientCars[idx]) {
         editClientCars[idx][field] = value;
     }
 }
 
-// Добавить новое авто в редактируемого клиента
 function addEditCar() {
-    const model = document.getElementById(`editCarModel_${editClientIdx}`).value.trim();
-    const plate = document.getElementById(`editCarPlate_${editClientIdx}`).value.trim();
+    const modelEl = document.getElementById('editCarModel_' + editClientIdx);
+    const plateEl = document.getElementById('editCarPlate_' + editClientIdx);
+    const model = modelEl.value.trim();
+    const plate = plateEl.value.trim();
     if (!model) { alert('Введите марку и модель'); return; }
     editClientCars.push({ model, plate });
     renderClients();
 }
 
-// Удалить авто из редактируемого клиента
 function removeEditCar(idx) {
     if (!confirm('Удалить это авто?')) return;
     editClientCars.splice(idx, 1);
     renderClients();
 }
 
-// Сохранить все изменения клиента
 function saveEditClient() {
-    const name = document.getElementById(`editName_${editClientIdx}`).value.trim();
-    const phone = document.getElementById(`editPhone_${editClientIdx}`).value.trim();
+    const nameEl = document.getElementById('editName_' + editClientIdx);
+    const phoneEl = document.getElementById('editPhone_' + editClientIdx);
+    const name = nameEl.value.trim();
+    const phone = phoneEl.value.trim();
     if (!name) { alert('Введите ФИО'); return; }
     if (editClientCars.length === 0) { alert('Добавьте хотя бы одно авто'); return; }
 
-    // Проверяем, что у каждого авто есть модель
     for (const car of editClientCars) {
         if (!car.model || !car.model.trim()) {
             alert('У каждого авто должна быть марка и модель');
@@ -208,11 +192,13 @@ function saveEditClient() {
 
     clients[editClientIdx].name = name;
     clients[editClientIdx].phone = phone;
-    clients[editClientIdx].cars = editClientCars.map(c => ({ model: c.model.trim(), plate: (c.plate || '').trim() }));
+    clients[editClientIdx].cars = editClientCars.map(c => ({
+        model: c.model.trim(),
+        plate: (c.plate || '').trim()
+    }));
 
     editClientIdx = null;
     editClientCars = [];
-
     selectedClientIdx = null;
     selectedCarIdx = null;
     saveToLocal();
@@ -220,9 +206,7 @@ function saveEditClient() {
     setStatus('Клиент обновлён');
 }
 
-// ============================================================
-//  РЕНДЕР КЛИЕНТОВ
-// ============================================================
+// ---------- РЕНДЕР КЛИЕНТОВ ----------
 function renderClients() {
     const container = document.getElementById('clientsList');
     if (!container) return;
@@ -232,14 +216,27 @@ function renderClients() {
     }
 
     container.innerHTML = clients.map((c, i) => {
-        // Режим редактирования
         if (editClientIdx === i) {
+            let carsHtml = '';
+            for (let idx = 0; idx < editClientCars.length; idx++) {
+                const car = editClientCars[idx];
+                carsHtml += '<div style="margin-bottom:8px; padding:8px; background:rgba(0,0,0,0.04); border-radius:6px; border-left:3px solid #2ea6ff;">';
+                carsHtml += '<label>Марка, модель:</label>';
+                carsHtml += '<input type="text" value="' + escapeAttr(car.model || '') + '" oninput="updateEditCar(' + idx + ', \'model\', this.value)" />';
+                carsHtml += '<label>Гос. номер:</label>';
+                carsHtml += '<input type="text" value="' + escapeAttr(car.plate || '') + '" oninput="updateEditCar(' + idx + ', \'plate\', this.value)" />';
+                carsHtml += '<button class="btn-secondary" style="background:#dc3545; color:#fff; margin-top:4px;" onclick="removeEditCar(' + idx + ')">🗑 Удалить это авто</button>';
+                carsHtml += '</div>';
+            }
+            if (editClientCars.length === 0) {
+                carsHtml = '<div class="empty" style="padding:8px 0;">Авто пока нет</div>';
+            }
+
             return `
             <div class="card" style="border-color:#ffc107;">
                 <div class="card-header">
                     <strong>✏️ Редактирование клиента</strong>
                 </div>
-
                 <label>ФИО:</label>
                 <input type="text" id="editName_${i}" value="${escapeAttr(c.name)}" />
                 <label>Телефон:</label>
@@ -247,20 +244,7 @@ function renderClients() {
 
                 <div class="sub-section">
                     <div class="sub-title">🚗 Автомобили</div>
-                    ${editClientCars.length === 0 ? '<div class="empty" style="padding:8px 0;">Авто пока нет</div>' : ''}
-                    ${editClientCars.map((car, idx) => `
-                        <div style="margin-bottom:8px; padding:8px; background:rgba(0,0,0,0.04); border-radius:6px; border-left:3px solid #2ea6ff;">
-                            <label>Марка, модель:</label>
-                            <input type="text" value="${escapeAttr(car.model || '')}"
-                                   oninput="updateEditCar(${idx}, 'model', this.value)" />
-                            <label>Гос. номер:</label>
-                            <input type="text" value="${escapeAttr(car.plate || '')}"
-                                   oninput="updateEditCar(${idx}, 'plate', this.value)" />
-                            <button class="btn-secondary" style="background:#dc3545; color:#fff; margin-top:4px;"
-                                    onclick="removeEditCar(${idx})">🗑 Удалить это авто</button>
-                        </div>
-                    `).join('')}
-
+                    ${carsHtml}
                     <div style="margin-top:12px; padding-top:12px; border-top:1px dashed rgba(0,0,0,0.15);">
                         <div class="sub-title">➕ Добавить новое авто</div>
                         <input type="text" id="editCarModel_${i}" placeholder="Марка, модель" />
@@ -275,7 +259,11 @@ function renderClients() {
             `;
         }
 
-        // Обычный режим
+        let carsList = '';
+        (c.cars || []).forEach(car => {
+            carsList += '<div class="car-line"><span class="car-info">🚗 ' + escapeHtml(car.model) + (car.plate ? ' · ' + escapeHtml(car.plate) : '') + '</span></div>';
+        });
+
         return `
         <div class="card">
             <div class="card-header">
@@ -288,19 +276,13 @@ function renderClients() {
                     <button class="btn-icon delete" onclick="deleteClient(${i})">✕</button>
                 </div>
             </div>
-            <div>
-                ${(c.cars || []).map(car =>
-                    `<div class="car-line"><span class="car-info">🚗 ${escapeHtml(car.model)}${car.plate ? ` · ${escapeHtml(car.plate)}` : ''}</span></div>`
-                ).join('')}
-            </div>
+            <div>${carsList}</div>
         </div>
         `;
     }).join('');
 }
 
-// ============================================================
-//  ПИКЕР КЛИЕНТОВ
-// ============================================================
+// ---------- ПИКЕР КЛИЕНТОВ ----------
 function renderClientPicker() {
     const el = document.getElementById('clientPicker');
     if (!el) return;
@@ -310,8 +292,7 @@ function renderClientPicker() {
         return;
     }
     el.innerHTML = clients.map((c, i) => `
-        <button class="picker-btn ${selectedClientIdx === i ? 'active' : ''}"
-                onclick="selectClient(${i})">
+        <button class="picker-btn ${selectedClientIdx === i ? 'active' : ''}" onclick="selectClient(${i})">
             ${escapeHtml(c.name)}
             <small>${escapeHtml(c.phone || 'без телефона')} · авто: ${(c.cars || []).length}</small>
         </button>
@@ -326,9 +307,7 @@ function selectClient(idx) {
     updateOrderFormVisibility();
 }
 
-// ============================================================
-//  ПИКЕР АВТО
-// ============================================================
+// ---------- ПИКЕР АВТО ----------
 function renderCarPicker() {
     const section = document.getElementById('carPickerSection');
     const el = document.getElementById('carPicker');
@@ -346,10 +325,9 @@ function renderCarPicker() {
     }
     section.style.display = 'block';
     el.innerHTML = cars.map((car, i) => `
-        <button class="picker-btn ${selectedCarIdx === i ? 'active' : ''}"
-                onclick="selectCar(${i})">
+        <button class="picker-btn ${selectedCarIdx === i ? 'active' : ''}" onclick="selectCar(${i})">
             🚗 ${escapeHtml(car.model)}
-            ${car.plate ? `<small>${escapeHtml(car.plate)}</small>` : ''}
+            ${car.plate ? '<small>' + escapeHtml(car.plate) + '</small>' : ''}
         </button>
     `).join('');
 }
@@ -366,9 +344,7 @@ function updateOrderFormVisibility() {
     form.style.display = (selectedClientIdx !== null && selectedCarIdx !== null) ? 'block' : 'none';
 }
 
-// ============================================================
-//  ЗАКАЗЫ — добавление
-// ============================================================
+// ---------- ЗАКАЗЫ — ДОБАВЛЕНИЕ ----------
 function addOrder() {
     if (selectedClientIdx === null) { alert('Выберите клиента'); return; }
     if (selectedCarIdx === null) { alert('Выберите автомобиль'); return; }
@@ -388,7 +364,10 @@ function addOrder() {
         clientPhone: client.phone,
         carModel: car.model,
         carPlate: car.plate,
-        work, cost, deadline, prepayment,
+        work: work,
+        cost: cost,
+        deadline: deadline,
+        prepayment: prepayment,
         expenses: [...tempExpenses],
         date: new Date().toLocaleDateString('ru-RU')
     });
@@ -411,9 +390,7 @@ function addOrder() {
     setStatus('Заказ добавлен');
 }
 
-// ============================================================
-//  ЗАКАЗЫ — удаление
-// ============================================================
+// ---------- ЗАКАЗЫ — УДАЛЕНИЕ ----------
 function deleteOrder(index) {
     if (!confirm('Удалить заказ?')) return;
     if (editOrderIdx === index) editOrderIdx = null;
@@ -423,9 +400,7 @@ function deleteOrder(index) {
     renderAll();
 }
 
-// ============================================================
-//  ЗАКАЗЫ — редактирование
-// ============================================================
+// ---------- ЗАКАЗЫ — РЕДАКТИРОВАНИЕ ----------
 function startEditOrder(i) {
     editOrderIdx = i;
     editOrderExpenses = JSON.parse(JSON.stringify(orders[i].expenses || []));
@@ -440,10 +415,15 @@ function cancelEditOrder() {
 
 function saveEditOrder() {
     const o = orders[editOrderIdx];
-    const work = document.getElementById(`editWork_${editOrderIdx}`).value.trim();
-    const cost = parseFloat(document.getElementById(`editCost_${editOrderIdx}`).value) || 0;
-    const deadline = document.getElementById(`editDeadline_${editOrderIdx}`).value;
-    const prepayment = parseFloat(document.getElementById(`editPrepayment_${editOrderIdx}`).value) || 0;
+    const workEl = document.getElementById('editWork_' + editOrderIdx);
+    const costEl = document.getElementById('editCost_' + editOrderIdx);
+    const deadlineEl = document.getElementById('editDeadline_' + editOrderIdx);
+    const prepaymentEl = document.getElementById('editPrepayment_' + editOrderIdx);
+
+    const work = workEl.value.trim();
+    const cost = parseFloat(costEl.value) || 0;
+    const deadline = deadlineEl.value;
+    const prepayment = parseFloat(prepaymentEl.value) || 0;
 
     if (!work) { alert('Введите описание работ'); return; }
 
@@ -461,8 +441,10 @@ function saveEditOrder() {
 }
 
 function addEditOrderExpense() {
-    const desc = document.getElementById(`editExpDesc_${editOrderIdx}`).value.trim();
-    const amount = parseFloat(document.getElementById(`editExpAmount_${editOrderIdx}`).value) || 0;
+    const descEl = document.getElementById('editExpDesc_' + editOrderIdx);
+    const amountEl = document.getElementById('editExpAmount_' + editOrderIdx);
+    const desc = descEl.value.trim();
+    const amount = parseFloat(amountEl.value) || 0;
     if (!desc) { alert('Введите описание расхода'); return; }
     if (amount <= 0) { alert('Введите сумму больше нуля'); return; }
     editOrderExpenses.push({ desc, amount });
@@ -474,24 +456,20 @@ function removeEditOrderExpense(idx) {
     renderOrders();
 }
 
-// ============================================================
-//  ДЕДЛАЙН
-// ============================================================
+// ---------- ДЕДЛАЙН ----------
 function getDeadlineInfo(deadline) {
     if (!deadline) return { text: 'без срока', cls: '' };
     const today = new Date(); today.setHours(0,0,0,0);
     const dl = new Date(deadline + 'T00:00:00');
     const diff = Math.round((dl - today) / (1000 * 60 * 60 * 24));
     const formatted = dl.toLocaleDateString('ru-RU');
-    if (diff < 0)  return { text: `просрочен (${formatted})`, cls: 'overdue' };
-    if (diff === 0) return { text: `сегодня (${formatted})`,  cls: 'today' };
-    if (diff <= 3)  return { text: `через ${diff} дн. (${formatted})`, cls: 'today' };
+    if (diff < 0)  return { text: 'просрочен (' + formatted + ')', cls: 'overdue' };
+    if (diff === 0) return { text: 'сегодня (' + formatted + ')',  cls: 'today' };
+    if (diff <= 3)  return { text: 'через ' + diff + ' дн. (' + formatted + ')', cls: 'today' };
     return { text: formatted, cls: 'ok' };
 }
 
-// ============================================================
-//  РЕНДЕР ЗАКАЗОВ
-// ============================================================
+// ---------- РЕНДЕР ЗАКАЗОВ ----------
 function renderOrders() {
     const container = document.getElementById('ordersList');
     if (!container) return;
@@ -503,13 +481,21 @@ function renderOrders() {
     container.innerHTML = orders.map((o, i) => {
         if (editOrderIdx === i) {
             const expensesTotal = editOrderExpenses.reduce((s, e) => s + e.amount, 0);
+            let expensesHtml = '';
+            editOrderExpenses.forEach((e, idx) => {
+                expensesHtml += '<div class="temp-item"><span>' + escapeHtml(e.desc) + ' — ' + e.amount.toFixed(0) + ' ₽</span><button onclick="removeEditOrderExpense(' + idx + ')">✕</button></div>';
+            });
+            if (editOrderExpenses.length === 0) {
+                expensesHtml = '<div class="empty" style="padding:6px 0; font-size:12px;">Расходов нет</div>';
+            }
+
             return `
             <div class="card" style="border-color:#ffc107;">
                 <div class="card-header">
                     <strong>✏️ Редактирование заказа</strong>
                 </div>
                 <small style="color:#888; font-size:12px; display:block; margin-bottom:8px;">
-                    👤 ${escapeHtml(o.clientName)} · 🚗 ${escapeHtml(o.carModel)}${o.carPlate ? ` (${escapeHtml(o.carPlate)})` : ''}
+                    👤 ${escapeHtml(o.clientName)} · 🚗 ${escapeHtml(o.carModel)}${o.carPlate ? ' (' + escapeHtml(o.carPlate) + ')' : ''}
                 </small>
 
                 <label>Описание работ:</label>
@@ -526,12 +512,7 @@ function renderOrders() {
 
                 <div class="sub-section">
                     <div class="sub-title">💸 Расходы</div>
-                    ${editOrderExpenses.map((e, idx) => `
-                        <div class="temp-item">
-                            <span>${escapeHtml(e.desc)} — ${e.amount.toFixed(0)} ₽</span>
-                            <button onclick="removeEditOrderExpense(${idx})">✕</button>
-                        </div>
-                    `).join('')}
+                    ${expensesHtml}
                     <div style="font-size:12px; color:#888; text-align:right; padding:2px 8px 6px 0;">
                         Итого: <b>${expensesTotal.toFixed(0)} ₽</b>
                     </div>
@@ -550,12 +531,25 @@ function renderOrders() {
         const profit = (o.cost || 0) - expensesTotal;
         const dl = getDeadlineInfo(o.deadline);
 
+        let expensesBlock = '';
+        if (o.expenses && o.expenses.length > 0) {
+            let expLines = '';
+            o.expenses.forEach(e => {
+                expLines += '<div class="exp-item"><span>' + escapeHtml(e.desc) + '</span><span>' + e.amount.toFixed(0) + ' ₽</span></div>';
+            });
+            expensesBlock = '<div class="order-expenses">' +
+                '<div style="font-size:11px; color:#888; margin-bottom:4px;">Расходы:</div>' +
+                expLines +
+                '<div class="exp-item" style="border-top:1px solid rgba(0,0,0,0.08); margin-top:4px; padding-top:4px; font-weight:600;">' +
+                '<span>Итого расходов:</span><span>' + expensesTotal.toFixed(0) + ' ₽</span></div></div>';
+        }
+
         return `
         <div class="card">
             <div class="card-header">
                 <div>
                     <strong>${escapeHtml(o.work)}</strong>
-                    <small>👤 ${escapeHtml(o.clientName)} · 🚗 ${escapeHtml(o.carModel)}${o.carPlate ? ` (${escapeHtml(o.carPlate)})` : ''}</small>
+                    <small>👤 ${escapeHtml(o.clientName)} · 🚗 ${escapeHtml(o.carModel)}${o.carPlate ? ' (' + escapeHtml(o.carPlate) + ')' : ''}</small>
                 </div>
                 <div class="card-actions">
                     <button class="btn-icon edit" onclick="startEditOrder(${i})">✏️</button>
@@ -580,21 +574,7 @@ function renderOrders() {
                 <span>${((o.cost || 0) - (o.prepayment || 0)).toFixed(0)} ₽</span>
             </div>
 
-            ${(o.expenses && o.expenses.length > 0) ? `
-                <div class="order-expenses">
-                    <div style="font-size:11px; color:#888; margin-bottom:4px;">Расходы:</div>
-                    ${o.expenses.map(e => `
-                        <div class="exp-item">
-                            <span>${escapeHtml(e.desc)}</span>
-                            <span>${e.amount.toFixed(0)} ₽</span>
-                        </div>
-                    `).join('')}
-                    <div class="exp-item" style="border-top:1px solid rgba(0,0,0,0.08); margin-top:4px; padding-top:4px; font-weight:600;">
-                        <span>Итого расходов:</span>
-                        <span>${expensesTotal.toFixed(0)} ₽</span>
-                    </div>
-                </div>
-            ` : ''}
+            ${expensesBlock}
 
             <div class="order-total">
                 Прибыль: <span class="${profit >= 0 ? 'profit' : 'loss'}">${profit.toFixed(0)} ₽</span>
@@ -604,9 +584,7 @@ function renderOrders() {
     }).join('');
 }
 
-// ============================================================
-//  ОЧИСТКА
-// ============================================================
+// ---------- ОЧИСТКА ----------
 function clearAll() {
     if (!confirm('Удалить ВСЕ данные? Это действие необратимо!')) return;
     clients = []; orders = []; tempCars = []; tempExpenses = [];
@@ -619,9 +597,7 @@ function clearAll() {
     setStatus('Все данные удалены');
 }
 
-// ============================================================
-//  СИНХРОНИЗАЦИЯ
-// ============================================================
+// ---------- СИНХРОНИЗАЦИЯ ----------
 function saveToTelegram() {
     if (!tg) { alert('Откройте приложение через Telegram'); return; }
     dataVersion += 1;
@@ -629,7 +605,7 @@ function saveToTelegram() {
     const jsonStr = JSON.stringify(data, null, 2);
     try {
         tg.sendData(JSON.stringify({ action: 'save', version: dataVersion, content: jsonStr }));
-        setStatus(`Сохранено (v${dataVersion})`);
+        setStatus('Сохранено (v' + dataVersion + ')');
         saveToLocal();
     } catch (e) {
         console.error('Ошибка отправки:', e);
@@ -656,7 +632,7 @@ if (tg) {
                 migrateOldFormat();
                 saveToLocal();
                 renderAll();
-                setStatus(`Загружено (v${dataVersion})`);
+                setStatus('Загружено (v' + dataVersion + ')');
             }
         } catch (e) {
             console.error('Ошибка обработки данных от бота:', e);
@@ -665,9 +641,7 @@ if (tg) {
     });
 }
 
-// ============================================================
-//  ВСПОМОГАТЕЛЬНЫЕ
-// ============================================================
+// ---------- ВСПОМОГАТЕЛЬНЫЕ ----------
 function escapeHtml(text) {
     if (text === undefined || text === null) return '';
     const div = document.createElement('div');
@@ -675,9 +649,18 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
+// Безопасная версия без HTML-сущностей в коде
 function escapeAttr(text) {
     if (text === undefined || text === null) return '';
-    return String(text).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const AMP = String.fromCharCode(38);
+    const QUOT = String.fromCharCode(34);
+    const LT = String.fromCharCode(60);
+    const GT = String.fromCharCode(62);
+    return String(text)
+        .split(AMP).join(AMP + 'amp;')
+        .split(QUOT).join(AMP + 'quot;')
+        .split(LT).join(AMP + 'lt;')
+        .split(GT).join(AMP + 'gt;');
 }
 
 function renderAll() {
@@ -691,7 +674,6 @@ function renderAll() {
     renderTempExpenses();
 }
 
-// ---------- Старт ----------
 loadFromLocal();
 renderAll();
 setStatus('Готово');
