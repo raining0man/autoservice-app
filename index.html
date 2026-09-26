@@ -23,15 +23,27 @@
             box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         }
         .section h2 { font-size: 16px; margin-bottom: 12px; }
+        .section h3 {
+            font-size: 14px;
+            margin: 12px 0 8px 0;
+            color: var(--tg-theme-hint-color, #666);
+        }
         input, textarea, select {
             width: 100%;
             padding: 10px;
-            margin-bottom: 10px;
+            margin-bottom: 8px;
             border: 1px solid var(--tg-theme-hint-color, #ccc);
             border-radius: 8px;
             font-size: 14px;
             background: var(--tg-theme-bg-color, #fff);
             color: var(--tg-theme-text-color, #000);
+        }
+        label {
+            display: block;
+            font-size: 12px;
+            color: var(--tg-theme-hint-color, #888);
+            margin-bottom: 4px;
+            margin-top: 4px;
         }
         button {
             width: 100%;
@@ -52,20 +64,122 @@
         .btn-secondary {
             background: var(--tg-theme-secondary-bg-color, #e0e0e0);
             color: var(--tg-theme-text-color, #000);
+            font-size: 14px;
+            padding: 10px;
         }
         .btn-success { background: #28a745; color: #fff; }
         .btn-warning { background: #ffc107; color: #000; }
-        .item {
-            border-bottom: 1px solid var(--tg-theme-hint-color, #eee);
-            padding: 10px 0;
+        .btn-danger { background: #dc3545; color: #fff; }
+
+        .sub-section {
+            background: rgba(0,0,0,0.04);
+            border-radius: 8px;
+            padding: 10px;
+            margin: 8px 0 12px 0;
+        }
+        .sub-title {
+            font-size: 13px;
+            color: var(--tg-theme-hint-color, #888);
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+
+        .temp-item {
             display: flex;
             justify-content: space-between;
             align-items: center;
+            padding: 6px 10px;
+            background: var(--tg-theme-bg-color, #fff);
+            border-radius: 6px;
+            margin-bottom: 6px;
+            font-size: 13px;
+            gap: 8px;
         }
-        .item:last-child { border-bottom: none; }
-        .item-info { flex: 1; }
-        .item-info strong { display: block; font-size: 14px; }
-        .item-info small { color: var(--tg-theme-hint-color, #888); font-size: 12px; }
+        .temp-item span { flex: 1; }
+        .temp-item button {
+            width: auto;
+            padding: 4px 8px;
+            font-size: 12px;
+            margin: 0;
+            background: #dc3545;
+            color: #fff;
+        }
+
+        .client-card {
+            border: 1px solid var(--tg-theme-hint-color, #eee);
+            border-radius: 8px;
+            padding: 10px;
+            margin-bottom: 8px;
+        }
+        .client-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 6px;
+        }
+        .client-header strong { font-size: 14px; }
+        .client-header small { color: #888; font-size: 12px; display: block; }
+        .client-cars { font-size: 12px; color: #666; line-height: 1.6; }
+        .client-cars div { padding-left: 4px; }
+
+        .order-card {
+            border: 1px solid var(--tg-theme-hint-color, #eee);
+            border-radius: 8px;
+            padding: 10px;
+            margin-bottom: 8px;
+        }
+        .order-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 8px;
+        }
+        .order-header strong { font-size: 14px; display: block; }
+        .order-header small { color: #888; font-size: 12px; }
+        .order-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+            padding: 3px 0;
+            border-bottom: 1px dashed rgba(0,0,0,0.06);
+        }
+        .order-row:last-child { border-bottom: none; }
+        .order-row .label { color: #888; }
+        .order-expenses {
+            margin-top: 6px;
+            padding: 6px 8px;
+            background: rgba(0,0,0,0.03);
+            border-radius: 6px;
+            font-size: 12px;
+        }
+        .order-expenses .exp-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 2px 0;
+        }
+        .order-total {
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 2px solid rgba(0,0,0,0.08);
+            font-size: 13px;
+            font-weight: 600;
+        }
+        .order-total .profit { color: #28a745; }
+        .order-total .loss { color: #dc3545; }
+
+        .badge {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 11px;
+            background: #ffe4b5;
+            color: #8b4513;
+            margin-left: 4px;
+        }
+        .badge.overdue { background: #ffcccc; color: #a00; }
+        .badge.today { background: #fff3cd; color: #856404; }
+        .badge.ok { background: #d4edda; color: #155724; }
+
         .delete-btn {
             background: #dc3545;
             color: #fff;
@@ -76,7 +190,9 @@
             width: auto;
             cursor: pointer;
         }
+
         .empty { text-align: center; color: #888; font-size: 14px; padding: 20px 0; }
+
         .status-bar {
             position: fixed;
             bottom: 0;
@@ -100,7 +216,15 @@
         <h2>👤 Клиенты</h2>
         <input type="text" id="clientName" placeholder="ФИО клиента" />
         <input type="tel" id="clientPhone" placeholder="Телефон" />
-        <input type="text" id="clientCar" placeholder="Автомобиль (марка, модель)" />
+
+        <div class="sub-section">
+            <div class="sub-title">🚗 Автомобили клиента</div>
+            <input type="text" id="carModel" placeholder="Марка, модель (напр. Toyota Camry)" />
+            <input type="text" id="carPlate" placeholder="Гос. номер (необязательно)" />
+            <button class="btn-secondary" onclick="addCarToList()">➕ Добавить авто</button>
+            <div id="carsTempList"></div>
+        </div>
+
         <button class="btn-primary" onclick="addClient()">Добавить клиента</button>
         <div id="clientsList"><div class="empty">Нет клиентов</div></div>
     </div>
@@ -108,11 +232,37 @@
     <!-- Учёт заказов -->
     <div class="section">
         <h2>📋 Заказы</h2>
-        <select id="orderClient">
+
+        <label>Клиент:</label>
+        <select id="orderClient" onchange="updateCarSelect()">
             <option value="">-- Выберите клиента --</option>
         </select>
-        <input type="text" id="orderWork" placeholder="Описание работ" />
-        <input type="number" id="orderCost" placeholder="Стоимость (руб.)" />
+
+        <label>Автомобиль:</label>
+        <select id="orderCar">
+            <option value="">-- Сначала выберите клиента --</option>
+        </select>
+
+        <label>Описание работ:</label>
+        <input type="text" id="orderWork" placeholder="Напр. Замена масла" />
+
+        <label>Стоимость работ (руб.):</label>
+        <input type="number" id="orderCost" placeholder="0" />
+
+        <label>Срок выполнения:</label>
+        <input type="date" id="orderDeadline" />
+
+        <label>Предоплата (руб.):</label>
+        <input type="number" id="orderPrepayment" placeholder="0" />
+
+        <div class="sub-section">
+            <div class="sub-title">💸 Расходы по работе</div>
+            <input type="text" id="expenseDesc" placeholder="Напр. Масло Mobil 1" />
+            <input type="number" id="expenseAmount" placeholder="Сумма (руб.)" />
+            <button class="btn-secondary" onclick="addExpenseToList()">➕ Добавить расход</button>
+            <div id="expensesTempList"></div>
+        </div>
+
         <button class="btn-primary" onclick="addOrder()">Добавить заказ</button>
         <div id="ordersList"><div class="empty">Нет заказов</div></div>
     </div>
@@ -131,7 +281,7 @@
     <!-- Статус -->
     <div class="status-bar">
         <span id="statusText">Готово</span>
-        <span id="versionText">v1.0</span>
+        <span id="versionText">v2.0</span>
     </div>
 
     <script src="app.js"></script>
