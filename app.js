@@ -1,6 +1,6 @@
 // ============================================================
-// Автосервис Админ v2.0 — Mini App для Telegram
-// Новое: несколько авто на клиента, сроки, предоплата, расходы
+// Автосервис Админ v3.0 — Mini App для Telegram
+// Выбор клиента и авто через кнопки (надёжнее, чем select)
 // ============================================================
 
 const tg = window.Telegram?.WebApp;
@@ -10,8 +10,12 @@ if (tg) { tg.ready(); tg.expand(); }
 let clients = [];
 let orders = [];
 let dataVersion = 0;
-let tempCars = [];      // временный список авто при создании клиента
-let tempExpenses = [];  // временный список расходов при создании заказа
+let tempCars = [];
+let tempExpenses = [];
+
+// Выбранные в данный момент клиент и авто (для формы заказа)
+let selectedClientIdx = null;
+let selectedCarIdx = null;
 
 // ---------- Загрузка/Сохранение ----------
 function loadFromLocal() {
@@ -27,27 +31,17 @@ function loadFromLocal() {
     } catch (e) { console.error('Ошибка загрузки:', e); }
 }
 
-// Миграция со старого формата (одна машина как строка) на новый (массив cars)
 function migrateOldFormat() {
     clients = clients.map(c => {
         if (c.car !== undefined && !c.cars) {
-            return {
-                name: c.name,
-                phone: c.phone,
-                cars: c.car ? [{ model: c.car, plate: '' }] : []
-            };
+            return { name: c.name, phone: c.phone, cars: c.car ? [{ model: c.car, plate: '' }] : [] };
         }
         return c;
     });
 }
 
 function saveToLocal() {
-    const data = {
-        clients,
-        orders,
-        version: dataVersion,
-        updatedAt: new Date().toISOString()
-    };
+    const data = { clients, orders, version: dataVersion, updatedAt: new Date().toISOString() };
     localStorage.setItem('autoservice_data', JSON.stringify(data));
     updateVersionDisplay();
 }
@@ -73,10 +67,7 @@ function addCarToList() {
     renderTempCars();
 }
 
-function removeCarFromList(i) {
-    tempCars.splice(i, 1);
-    renderTempCars();
-}
+function removeCarFromList(i) { tempCars.splice(i, 1); renderTempCars(); }
 
 function renderTempCars() {
     const el = document.getElementById('carsTempList');
@@ -95,17 +86,14 @@ function addExpenseToList() {
     const desc = document.getElementById('expenseDesc').value.trim();
     const amount = parseFloat(document.getElementById('expenseAmount').value) || 0;
     if (!desc) { alert('Введите описание расхода'); return; }
-    if (amount <= 0) { alert('Введите сумму расхода больше нуля'); return; }
+    if (amount <= 0) { alert('Введите сумму больше нуля'); return; }
     tempExpenses.push({ desc, amount });
     document.getElementById('expenseDesc').value = '';
     document.getElementById('expenseAmount').value = '';
     renderTempExpenses();
 }
 
-function removeExpenseFromList(i) {
-    tempExpenses.splice(i, 1);
-    renderTempExpenses();
-}
+function removeExpenseFromList(i) { tempExpenses.splice(i, 1); renderTempExpenses(); }
 
 function renderTempExpenses() {
     const el = document.getElementById('expensesTempList');
@@ -119,7 +107,7 @@ function renderTempExpenses() {
         </div>
     `).join('') + `
         <div style="font-size:12px; color:#888; text-align:right; padding:4px 8px 0 0;">
-            Итого расходов: <b>${total.toFixed(0)} ₽</b>
+            Итого: <b>${total.toFixed(0)} ₽</b>
         </div>
     `;
 }
@@ -144,6 +132,12 @@ function addClient() {
 
 function deleteClient(index) {
     if (!confirm('Удалить клиента?')) return;
+    if (selectedClientIdx === index) {
+        selectedClientIdx = null;
+        selectedCarIdx = null;
+    } else if (selectedClientIdx !== null && selectedClientIdx > index) {
+        selectedClientIdx--;
+    }
     clients.splice(index, 1);
     saveToLocal();
     renderAll();
@@ -152,12 +146,10 @@ function deleteClient(index) {
 function renderClients() {
     const container = document.getElementById('clientsList');
     if (!container) return;
-
     if (clients.length === 0) {
         container.innerHTML = '<div class="empty">Нет клиентов</div>';
         return;
     }
-
     container.innerHTML = clients.map((c, i) => `
         <div class="client-card">
             <div class="client-header">
@@ -176,65 +168,102 @@ function renderClients() {
     `).join('');
 }
 
-// ---------- Обновление выпадающего списка клиентов ----------
-function updateClientSelect() {
-    const select = document.getElementById('orderClient');
-    if (!select) return;
-    const currentVal = select.value;
-    select.innerHTML = '<option value="">-- Выберите клиента --</option>' +
-        clients.map((c, i) => `<option value="${i}">${escapeHtml(c.name)}</option>`).join('');
-    select.value = currentVal;
-    updateCarSelect();
+// ---------- Пикер клиентов (кнопки) ----------
+function renderClientPicker() {
+    const el = document.getElementById('clientPicker');
+    if (!el) return;
+
+    if (clients.length === 0) {
+        el.innerHTML = '<div class="empty">Сначала добавьте клиента</div>';
+        selectedClientIdx = null;
+        return;
+    }
+
+    el.innerHTML = clients.map((c, i) => `
+        <button class="picker-btn ${selectedClientIdx === i ? 'active' : ''}"
+                onclick="selectClient(${i})">
+            ${escapeHtml(c.name)}
+            <small>${escapeHtml(c.phone || 'без телефона')} · авто: ${(c.cars || []).length}</small>
+        </button>
+    `).join('');
 }
 
-// ---------- Обновление выпадающего списка авто (зависит от клиента) ----------
-function updateCarSelect() {
-    const clientIdx = document.getElementById('orderClient').value;
-    const carSelect = document.getElementById('orderCar');
-    if (!carSelect) return;
+function selectClient(idx) {
+    selectedClientIdx = idx;
+    selectedCarIdx = null;
+    renderClientPicker();
+    renderCarPicker();
+    updateOrderFormVisibility();
+}
 
-    if (clientIdx === '') {
-        carSelect.innerHTML = '<option value="">-- Сначала выберите клиента --</option>';
+// ---------- Пикер авто (кнопки) ----------
+function renderCarPicker() {
+    const section = document.getElementById('carPickerSection');
+    const el = document.getElementById('carPicker');
+    if (!section || !el) return;
+
+    if (selectedClientIdx === null) {
+        section.style.display = 'none';
         return;
     }
 
-    const client = clients[parseInt(clientIdx)];
+    const client = clients[selectedClientIdx];
     const cars = client.cars || [];
+
     if (cars.length === 0) {
-        carSelect.innerHTML = '<option value="">-- У клиента нет авто --</option>';
+        section.style.display = 'block';
+        el.innerHTML = '<div class="empty">У клиента нет авто</div>';
         return;
     }
-    carSelect.innerHTML = '<option value="">-- Выберите авто --</option>' +
-        cars.map((c, i) =>
-            `<option value="${i}">${escapeHtml(c.model)}${c.plate ? ` (${escapeHtml(c.plate)})` : ''}</option>`
-        ).join('');
+
+    section.style.display = 'block';
+    el.innerHTML = cars.map((car, i) => `
+        <button class="picker-btn ${selectedCarIdx === i ? 'active' : ''}"
+                onclick="selectCar(${i})">
+            🚗 ${escapeHtml(car.model)}
+            ${car.plate ? `<small>${escapeHtml(car.plate)}</small>` : ''}
+        </button>
+    `).join('');
+}
+
+function selectCar(idx) {
+    selectedCarIdx = idx;
+    renderCarPicker();
+    updateOrderFormVisibility();
+}
+
+// ---------- Показ формы заказа ----------
+function updateOrderFormVisibility() {
+    const form = document.getElementById('orderFormSection');
+    if (!form) return;
+    if (selectedClientIdx !== null && selectedCarIdx !== null) {
+        form.style.display = 'block';
+    } else {
+        form.style.display = 'none';
+    }
 }
 
 // ---------- Заказы ----------
 function addOrder() {
-    const clientIdx = document.getElementById('orderClient').value;
-    const carIdx = document.getElementById('orderCar').value;
+    if (selectedClientIdx === null) { alert('Выберите клиента'); return; }
+    if (selectedCarIdx === null) { alert('Выберите автомобиль'); return; }
+
     const work = document.getElementById('orderWork').value.trim();
     const cost = parseFloat(document.getElementById('orderCost').value) || 0;
     const deadline = document.getElementById('orderDeadline').value;
     const prepayment = parseFloat(document.getElementById('orderPrepayment').value) || 0;
 
-    if (clientIdx === '') { alert('Выберите клиента'); return; }
-    if (carIdx === '') { alert('Выберите автомобиль'); return; }
     if (!work) { alert('Введите описание работ'); return; }
 
-    const client = clients[parseInt(clientIdx)];
-    const car = client.cars[parseInt(carIdx)];
+    const client = clients[selectedClientIdx];
+    const car = client.cars[selectedCarIdx];
 
     orders.push({
         clientName: client.name,
         clientPhone: client.phone,
         carModel: car.model,
         carPlate: car.plate,
-        work,
-        cost,
-        deadline,
-        prepayment,
+        work, cost, deadline, prepayment,
         expenses: [...tempExpenses],
         date: new Date().toLocaleDateString('ru-RU')
     });
@@ -245,6 +274,13 @@ function addOrder() {
     document.getElementById('orderDeadline').value = '';
     document.getElementById('orderPrepayment').value = '';
     renderTempExpenses();
+
+    // Сбрасываем выбор
+    selectedClientIdx = null;
+    selectedCarIdx = null;
+    renderClientPicker();
+    renderCarPicker();
+    updateOrderFormVisibility();
 
     saveToLocal();
     renderAll();
@@ -258,13 +294,12 @@ function deleteOrder(index) {
     renderAll();
 }
 
-// ---------- Дедлайн: статус ----------
+// ---------- Дедлайн ----------
 function getDeadlineInfo(deadline) {
     if (!deadline) return { text: 'без срока', cls: '' };
     const today = new Date(); today.setHours(0,0,0,0);
     const dl = new Date(deadline + 'T00:00:00');
     const diff = Math.round((dl - today) / (1000 * 60 * 60 * 24));
-
     const formatted = dl.toLocaleDateString('ru-RU');
     if (diff < 0)  return { text: `просрочен (${formatted})`, cls: 'overdue' };
     if (diff === 0) return { text: `сегодня (${formatted})`,  cls: 'today' };
@@ -275,20 +310,14 @@ function getDeadlineInfo(deadline) {
 function renderOrders() {
     const container = document.getElementById('ordersList');
     if (!container) return;
-
     if (orders.length === 0) {
         container.innerHTML = '<div class="empty">Нет заказов</div>';
         return;
     }
-
-    // Сортируем: сначала новые по дате добавления
-    const indexed = orders.map((o, i) => ({ ...o, _idx: i }));
-
-    container.innerHTML = indexed.map(o => {
+    container.innerHTML = orders.map((o, i) => {
         const expensesTotal = (o.expenses || []).reduce((s, e) => s + e.amount, 0);
         const profit = (o.cost || 0) - expensesTotal;
         const dl = getDeadlineInfo(o.deadline);
-
         return `
         <div class="order-card">
             <div class="order-header">
@@ -296,9 +325,8 @@ function renderOrders() {
                     <strong>${escapeHtml(o.work)}</strong>
                     <small>👤 ${escapeHtml(o.clientName)} · 🚗 ${escapeHtml(o.carModel)}${o.carPlate ? ` (${escapeHtml(o.carPlate)})` : ''}</small>
                 </div>
-                <button class="delete-btn" onclick="deleteOrder(${o._idx})">✕</button>
+                <button class="delete-btn" onclick="deleteOrder(${i})">✕</button>
             </div>
-
             <div class="order-row">
                 <span class="label">Срок:</span>
                 <span><span class="badge ${dl.cls}">${dl.text}</span></span>
@@ -315,7 +343,6 @@ function renderOrders() {
                 <span class="label">К доплате:</span>
                 <span>${((o.cost || 0) - (o.prepayment || 0)).toFixed(0)} ₽</span>
             </div>
-
             ${(o.expenses && o.expenses.length > 0) ? `
                 <div class="order-expenses">
                     <div style="font-size:11px; color:#888; margin-bottom:4px;">Расходы:</div>
@@ -331,7 +358,6 @@ function renderOrders() {
                     </div>
                 </div>
             ` : ''}
-
             <div class="order-total">
                 Прибыль: <span class="${profit >= 0 ? 'profit' : 'loss'}">${profit.toFixed(0)} ₽</span>
             </div>
@@ -344,6 +370,7 @@ function renderOrders() {
 function clearAll() {
     if (!confirm('Удалить ВСЕ данные? Это действие необратимо!')) return;
     clients = []; orders = []; tempCars = []; tempExpenses = [];
+    selectedClientIdx = null; selectedCarIdx = null;
     dataVersion = 0;
     saveToLocal();
     renderAll();
@@ -351,18 +378,12 @@ function clearAll() {
 }
 
 // ============================================================
-//  СИНХРОНИЗАЦИЯ ЧЕРЕЗ TELEGRAM
+//  СИНХРОНИЗАЦИЯ
 // ============================================================
-
 function saveToTelegram() {
     if (!tg) { alert('Откройте приложение через Telegram'); return; }
     dataVersion += 1;
-    const data = {
-        clients, orders,
-        version: dataVersion,
-        updatedAt: new Date().toISOString(),
-        device: tg.platform || 'unknown'
-    };
+    const data = { clients, orders, version: dataVersion, updatedAt: new Date().toISOString(), device: tg.platform || 'unknown' };
     const jsonStr = JSON.stringify(data, null, 2);
     try {
         tg.sendData(JSON.stringify({ action: 'save', version: dataVersion, content: jsonStr }));
@@ -405,7 +426,6 @@ if (tg) {
 // ============================================================
 //  ВСПОМОГАТЕЛЬНЫЕ
 // ============================================================
-
 function escapeHtml(text) {
     if (text === undefined || text === null) return '';
     const div = document.createElement('div');
@@ -415,8 +435,10 @@ function escapeHtml(text) {
 
 function renderAll() {
     renderClients();
+    renderClientPicker();
+    renderCarPicker();
+    updateOrderFormVisibility();
     renderOrders();
-    updateClientSelect();
     updateVersionDisplay();
     renderTempCars();
     renderTempExpenses();
@@ -426,4 +448,4 @@ function renderAll() {
 loadFromLocal();
 renderAll();
 setStatus('Готово');
-console.log('🔧 Автосервис Админ v2.0 запущен');
+console.log('🔧 Автосервис Админ v3.0 запущен');
