@@ -1,6 +1,7 @@
 # ============================================================
 #  Бот для синхронизации данных автосервиса
 #  Принимает данные от Mini App и отдаёт их обратно.
+#  Работает на Render.com с фиктивным веб-сервером.
 # ============================================================
 
 import asyncio
@@ -9,13 +10,13 @@ import os
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+from aiohttp import web
 
 # ---------- НАСТРОЙКИ ----------
-# Вставьте сюда токен, который получили от BotFather
+# Токен берётся из переменной окружения BOT_TOKEN (задаётся на Render)
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
-# Вставьте сюда URL вашего приложения на GitHub Pages
-# (появится после размещения на GitHub, пока оставьте так)
+# URL вашего приложения на GitHub Pages
 WEBAPP_URL = "https://raining0man.github.io/autoservice-app/"
 
 # Файл, где хранится последний сохранённый бэкап
@@ -24,6 +25,25 @@ DATA_FILE = "autoservice_backup.json"
 # ---------- Инициализация ----------
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
+
+
+# ============================================================
+#  ФИКТИВНЫЙ ВЕБ-СЕРВЕР ДЛЯ RENDER
+#  Render ожидает, что приложение слушает порт. Без этого он
+#  считает сервис неактивным и останавливает его.
+# ============================================================
+async def handle(request):
+    return web.Response(text="Bot is alive")
+
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get('/', handle)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    print(f"✅ Веб-сервер запущен на порту {port}")
 
 
 # ---------- Команда /start ----------
@@ -56,13 +76,11 @@ async def handle_webapp_data(message: types.Message):
         action = data.get("action")
 
         if action == "save":
-            # Сохраняем данные в файл на сервере
             content = data.get("content", "{}")
 
             with open(DATA_FILE, "w", encoding="utf-8") as f:
                 f.write(content)
 
-            # Отправляем файл обратно в чат
             document = types.FSInputFile(DATA_FILE, filename="autoservice_backup.json")
             await message.answer_document(
                 document=document,
@@ -71,12 +89,10 @@ async def handle_webapp_data(message: types.Message):
             await message.answer("✅ Данные сохранены. Теперь их можно загрузить на другом устройстве.")
 
         elif action == "load":
-            # Отправляем последний сохранённый файл
             if os.path.exists(DATA_FILE):
                 with open(DATA_FILE, "r", encoding="utf-8") as f:
                     content = f.read()
 
-                # Отправляем данные в виде текста
                 await message.answer(
                     f"📥 Последние сохранённые данные:\n\n{content}"
                 )
@@ -112,6 +128,9 @@ async def cmd_backup(message: types.Message):
 # ---------- Запуск ----------
 async def main():
     print("🤖 Бот запущен...")
+    # Запускаем веб-сервер (нужен для Render)
+    await start_web_server()
+    # Запускаем polling бота
     await dp.start_polling(bot)
 
 
