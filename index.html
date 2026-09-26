@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Автосервис Админ</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -63,7 +66,6 @@
             padding: 10px;
         }
         .btn-success { background: #28a745; color: #fff; }
-        .btn-warning { background: #ffc107; color: #000; }
 
         .sub-section {
             background: rgba(0,0,0,0.04);
@@ -161,7 +163,6 @@
         }
         .btn-icon.delete { background: #dc3545; color: #fff; }
         .btn-icon.edit { background: #ffc107; color: #000; }
-        .btn-icon.save { background: #28a745; color: #fff; }
 
         .car-line {
             font-size: 12px;
@@ -233,6 +234,17 @@
             font-size: 12px;
             color: #888;
         }
+        .sync-dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 6px;
+            background: #ffc107;
+            vertical-align: middle;
+        }
+        .sync-dot.ok { background: #28a745; }
+        .sync-dot.error { background: #dc3545; }
     </style>
 </head>
 <body>
@@ -298,20 +310,18 @@
     </div>
 
     <div class="section">
-        <h2>🔄 Синхронизация</h2>
-        <p style="font-size:13px; margin-bottom:12px; color:#888;">
-            Сохраните данные в Telegram, чтобы открыть их на другом устройстве.
-        </p>
-        <button class="btn-success" onclick="saveToTelegram()">💾 Сохранить в Telegram</button>
-        <button class="btn-warning" onclick="loadFromTelegram()">📥 Загрузить из Telegram</button>
-        <button class="btn-secondary" onclick="clearAll()">🗑 Очистить всё</button>
+        <h2>🗑 Опасная зона</h2>
+        <button class="btn-secondary" onclick="clearAll()">Очистить все данные</button>
     </div>
 
     <div class="status-bar">
-        <span id="statusText">Готово</span>
-        <span id="versionText">v5.0</span>
+        <span>
+            <span class="sync-dot" id="syncDot"></span>
+            <span id="statusText">Подключение...</span>
+        </span>
+        <span id="versionText">v0</span>
     </div>
 
-    <script src="app-v6.js"></script>
+    <script src="app.js?v=7"></script>
 </body>
 </html>
