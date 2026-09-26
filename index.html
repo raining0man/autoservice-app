@@ -65,6 +65,12 @@
         }
         .btn-success { background: #28a745; color: #fff; }
         .btn-warning { background: #ffc107; color: #000; }
+        .btn-small {
+            width: auto;
+            padding: 6px 10px;
+            font-size: 12px;
+            margin: 0;
+        }
 
         .sub-section {
             background: rgba(0,0,0,0.04);
@@ -131,37 +137,51 @@
             color: #fff;
         }
 
-        .client-card {
+        .card {
             border: 1px solid var(--tg-theme-hint-color, #eee);
             border-radius: 8px;
             padding: 10px;
             margin-bottom: 8px;
         }
-        .client-header {
+        .card-header {
             display: flex;
             justify-content: space-between;
             align-items: flex-start;
             margin-bottom: 6px;
+            gap: 6px;
         }
-        .client-header strong { font-size: 14px; }
-        .client-header small { color: #888; font-size: 12px; display: block; }
-        .client-cars { font-size: 12px; color: #666; line-height: 1.6; }
-        .client-cars div { padding-left: 4px; }
+        .card-header strong { font-size: 14px; }
+        .card-header small { color: #888; font-size: 12px; display: block; }
+        .card-actions {
+            display: flex;
+            gap: 4px;
+            flex-shrink: 0;
+        }
+        .btn-icon {
+            width: auto;
+            padding: 6px 8px;
+            font-size: 14px;
+            border-radius: 6px;
+            margin: 0;
+            background: #e0e0e0;
+            color: #000;
+        }
+        .btn-icon.delete { background: #dc3545; color: #fff; }
+        .btn-icon.edit { background: #ffc107; color: #000; }
+        .btn-icon.save { background: #28a745; color: #fff; }
+        .btn-icon.cancel { background: #6c757d; color: #fff; }
 
-        .order-card {
-            border: 1px solid var(--tg-theme-hint-color, #eee);
-            border-radius: 8px;
-            padding: 10px;
-            margin-bottom: 8px;
-        }
-        .order-header {
+        .car-line {
+            font-size: 12px;
+            color: #666;
+            padding: 2px 0;
             display: flex;
             justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 8px;
+            align-items: center;
+            gap: 6px;
         }
-        .order-header strong { font-size: 14px; display: block; }
-        .order-header small { color: #888; font-size: 12px; }
+        .car-line .car-info { flex: 1; }
+
         .order-row {
             display: flex;
             justify-content: space-between;
@@ -205,17 +225,6 @@
         .badge.overdue { background: #ffcccc; color: #a00; }
         .badge.today { background: #fff3cd; color: #856404; }
         .badge.ok { background: #d4edda; color: #155724; }
-
-        .delete-btn {
-            background: #dc3545;
-            color: #fff;
-            border: none;
-            border-radius: 6px;
-            padding: 6px 10px;
-            font-size: 12px;
-            width: auto;
-            cursor: pointer;
-        }
 
         .empty { text-align: center; color: #888; font-size: 14px; padding: 20px 0; }
 
@@ -311,7 +320,7 @@
 
     <div class="status-bar">
         <span id="statusText">Готово</span>
-        <span id="versionText">v3.0</span>
+        <span id="versionText">v4.0</span>
     </div>
 
     <script src="app.js"></script>
