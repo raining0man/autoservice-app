@@ -1,9 +1,34 @@
-// Автосервис Админ v5.0 — Mini App для Telegram
-// Безопасная версия escapeAttr (без HTML-сущностей в коде)
+// ============================================================
+// Автосервис Админ v6.0 — Firebase Sync
+// Данные хранятся в облаке Firestore, синхронизация мгновенная
+// ============================================================
 
+// ---------- КОНФИГ FIREBASE ----------
+const firebaseConfig = {
+  apiKey: "AIzaSyABM5s_1e0172SV8ICquhoyqZ1s0J8RZ2w",
+  authDomain: "menu-auto-e79d2.firebaseapp.com",
+  projectId: "menu-auto-e79d2",
+  storageBucket: "menu-auto-e79d2.firebasestorage.app",
+  messagingSenderId: "398535584228",
+  appId: "1:398535584228:web:157d7915f0c388999983f1",
+  measurementId: "G-LYWD048M4P"
+};
+
+// ---------- ИНИЦИАЛИЗАЦИЯ ----------
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+const auth = firebase.auth();
+
+// Включаем кэш Firestore (работает офлайн)
+db.enablePersistence({ synchronizeTabs: true }).catch((err) => {
+    console.warn('Кэш Firestore не активирован:', err.code);
+});
+
+// Telegram Mini App
 const tg = window.Telegram?.WebApp;
 if (tg) { tg.ready(); tg.expand(); }
 
+// ---------- Данные ----------
 let clients = [];
 let orders = [];
 let dataVersion = 0;
@@ -16,33 +41,19 @@ let editClientCars = [];
 let editOrderIdx = null;
 let editOrderExpenses = [];
 
-// ---------- ХРАНИЛИЩЕ ----------
-function loadFromLocal() {
-    try {
-        const saved = localStorage.getItem('autoservice_data');
-        if (saved) {
-            const parsed = JSON.parse(saved);
-            clients = parsed.clients || [];
-            orders = parsed.orders || [];
-            dataVersion = parsed.version || 0;
-            migrateOldFormat();
-        }
-    } catch (e) { console.error('Ошибка загрузки:', e); }
-}
+// Флаг: не перезаписывать Firestore, пока идёт первичная загрузка
+let isReady = false;
+let isSaving = false;
 
-function migrateOldFormat() {
-    clients = clients.map(c => {
-        if (c.car !== undefined && !c.cars) {
-            return { name: c.name, phone: c.phone, cars: c.car ? [{ model: c.car, plate: '' }] : [] };
-        }
-        return c;
-    });
-}
-
-function saveToLocal() {
-    const data = { clients, orders, version: dataVersion, updatedAt: new Date().toISOString() };
-    localStorage.setItem('autoservice_data', JSON.stringify(data));
-    updateVersionDisplay();
+// ---------- Статус ----------
+function setStatus(text, state) {
+    const el = document.getElementById('statusText');
+    const dot = document.getElementById('syncDot');
+    if (el) el.textContent = text;
+    if (dot) {
+        dot.className = 'sync-dot';
+        if (state) dot.classList.add(state); // 'ok' или 'error'
+    }
 }
 
 function updateVersionDisplay() {
@@ -50,9 +61,70 @@ function updateVersionDisplay() {
     if (el) el.textContent = 'v' + dataVersion;
 }
 
-function setStatus(text) {
-    const el = document.getElementById('statusText');
-    if (el) el.textContent = text;
+// ---------- СОХРАНЕНИЕ В FIRESTORE ----------
+async function saveToFirebase() {
+    if (!isReady) return;
+    isSaving = true;
+    dataVersion++;
+    setStatus('Сохранение...', '');
+    try {
+        await db.collection('data').doc('main').set({
+            clients: clients,
+            orders: orders,
+            version: dataVersion,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        updateVersionDisplay();
+        setStatus('Сохранено в облако', 'ok');
+    } catch (e) {
+        console.error('Ошибка сохранения:', e);
+        setStatus('Ошибка синхронизации', 'error');
+    }
+    isSaving = false;
+}
+
+// ---------- ЗАГРУЗКА ИЗ FIRESTORE (реальное время) ----------
+function subscribeToFirebase() {
+    db.collection('data').doc('main').onSnapshot((doc) => {
+        // Если сами сейчас сохраняем — не перезаписываем UI своими же данными
+        if (isSaving) return;
+
+        if (doc.exists) {
+            const data = doc.data();
+            // Проверяем, что данные действительно изменились
+            const newVersion = data.version || 0;
+            if (newVersion !== dataVersion) {
+                clients = data.clients || [];
+                orders = data.orders || [];
+                dataVersion = newVersion;
+                migrateOldFormat();
+                renderAll();
+                updateVersionDisplay();
+                setStatus('Обновлено из облака', 'ok');
+            } else {
+                setStatus('Синхронизировано', 'ok');
+            }
+        } else {
+            // Документ ещё не создан — ждём первого сохранения
+            setStatus('Готово. Создайте первого клиента', 'ok');
+        }
+        isReady = true;
+    }, (error) => {
+        console.error('Ошибка подписки:', error);
+        setStatus('Нет связи с облаком', 'error');
+    });
+}
+
+// ---------- АВТОРИЗАЦИЯ И СТАРТ ----------
+async function init() {
+    try {
+        await auth.signInAnonymously();
+        console.log('✅ Анонимная авторизация Firebase OK');
+        subscribeToFirebase();
+    } catch (e) {
+        console.error('Ошибка авторизации:', e);
+        setStatus('Ошибка авторизации', 'error');
+    }
 }
 
 // ---------- ВРЕМЕННЫЕ СПИСКИ ----------
@@ -110,7 +182,7 @@ function renderTempExpenses() {
     `;
 }
 
-// ---------- КЛИЕНТЫ — ДОБАВЛЕНИЕ ----------
+// ---------- КЛИЕНТЫ ----------
 function addClient() {
     const name = document.getElementById('clientName').value.trim();
     const phone = document.getElementById('clientPhone').value.trim();
@@ -123,12 +195,10 @@ function addClient() {
     document.getElementById('clientName').value = '';
     document.getElementById('clientPhone').value = '';
     renderTempCars();
-    saveToLocal();
     renderAll();
-    setStatus('Клиент добавлен');
+    saveToFirebase();
 }
 
-// ---------- КЛИЕНТЫ — УДАЛЕНИЕ ----------
 function deleteClient(index) {
     if (!confirm('Удалить клиента?')) return;
     if (selectedClientIdx === index) { selectedClientIdx = null; selectedCarIdx = null; }
@@ -136,11 +206,10 @@ function deleteClient(index) {
     if (editClientIdx === index) editClientIdx = null;
     else if (editClientIdx !== null && editClientIdx > index) editClientIdx--;
     clients.splice(index, 1);
-    saveToLocal();
     renderAll();
+    saveToFirebase();
 }
 
-// ---------- КЛИЕНТЫ — РЕДАКТИРОВАНИЕ ----------
 function startEditClient(i) {
     editClientIdx = i;
     editClientCars = JSON.parse(JSON.stringify(clients[i].cars || []));
@@ -154,9 +223,7 @@ function cancelEditClient() {
 }
 
 function updateEditCar(idx, field, value) {
-    if (editClientCars[idx]) {
-        editClientCars[idx][field] = value;
-    }
+    if (editClientCars[idx]) editClientCars[idx][field] = value;
 }
 
 function addEditCar() {
@@ -182,28 +249,24 @@ function saveEditClient() {
     const phone = phoneEl.value.trim();
     if (!name) { alert('Введите ФИО'); return; }
     if (editClientCars.length === 0) { alert('Добавьте хотя бы одно авто'); return; }
-
     for (const car of editClientCars) {
         if (!car.model || !car.model.trim()) {
             alert('У каждого авто должна быть марка и модель');
             return;
         }
     }
-
     clients[editClientIdx].name = name;
     clients[editClientIdx].phone = phone;
     clients[editClientIdx].cars = editClientCars.map(c => ({
         model: c.model.trim(),
         plate: (c.plate || '').trim()
     }));
-
     editClientIdx = null;
     editClientCars = [];
     selectedClientIdx = null;
     selectedCarIdx = null;
-    saveToLocal();
     renderAll();
-    setStatus('Клиент обновлён');
+    saveToFirebase();
 }
 
 // ---------- РЕНДЕР КЛИЕНТОВ ----------
@@ -344,7 +407,7 @@ function updateOrderFormVisibility() {
     form.style.display = (selectedClientIdx !== null && selectedCarIdx !== null) ? 'block' : 'none';
 }
 
-// ---------- ЗАКАЗЫ — ДОБАВЛЕНИЕ ----------
+// ---------- ЗАКАЗЫ ----------
 function addOrder() {
     if (selectedClientIdx === null) { alert('Выберите клиента'); return; }
     if (selectedCarIdx === null) { alert('Выберите автомобиль'); return; }
@@ -385,22 +448,19 @@ function addOrder() {
     renderCarPicker();
     updateOrderFormVisibility();
 
-    saveToLocal();
     renderAll();
-    setStatus('Заказ добавлен');
+    saveToFirebase();
 }
 
-// ---------- ЗАКАЗЫ — УДАЛЕНИЕ ----------
 function deleteOrder(index) {
     if (!confirm('Удалить заказ?')) return;
     if (editOrderIdx === index) editOrderIdx = null;
     else if (editOrderIdx !== null && editOrderIdx > index) editOrderIdx--;
     orders.splice(index, 1);
-    saveToLocal();
     renderAll();
+    saveToFirebase();
 }
 
-// ---------- ЗАКАЗЫ — РЕДАКТИРОВАНИЕ ----------
 function startEditOrder(i) {
     editOrderIdx = i;
     editOrderExpenses = JSON.parse(JSON.stringify(orders[i].expenses || []));
@@ -435,9 +495,8 @@ function saveEditOrder() {
 
     editOrderIdx = null;
     editOrderExpenses = [];
-    saveToLocal();
     renderAll();
-    setStatus('Заказ обновлён');
+    saveToFirebase();
 }
 
 function addEditOrderExpense() {
@@ -591,54 +650,8 @@ function clearAll() {
     selectedClientIdx = null; selectedCarIdx = null;
     editClientIdx = null; editClientCars = [];
     editOrderIdx = null; editOrderExpenses = [];
-    dataVersion = 0;
-    saveToLocal();
     renderAll();
-    setStatus('Все данные удалены');
-}
-
-// ---------- СИНХРОНИЗАЦИЯ ----------
-function saveToTelegram() {
-    if (!tg) { alert('Откройте приложение через Telegram'); return; }
-    dataVersion += 1;
-    const data = { clients, orders, version: dataVersion, updatedAt: new Date().toISOString(), device: tg.platform || 'unknown' };
-    const jsonStr = JSON.stringify(data, null, 2);
-    try {
-        tg.sendData(JSON.stringify({ action: 'save', version: dataVersion, content: jsonStr }));
-        setStatus('Сохранено (v' + dataVersion + ')');
-        saveToLocal();
-    } catch (e) {
-        console.error('Ошибка отправки:', e);
-        alert('Не удалось сохранить. Попробуйте ещё раз.');
-    }
-}
-
-function loadFromTelegram() {
-    if (!tg) { alert('Откройте приложение через Telegram'); return; }
-    try {
-        tg.sendData(JSON.stringify({ action: 'load' }));
-        setStatus('Запрос отправлен...');
-    } catch (e) { console.error(e); alert('Не удалось запросить данные.'); }
-}
-
-if (tg) {
-    tg.onEvent('webAppData', (data) => {
-        try {
-            const parsed = typeof data === 'string' ? JSON.parse(data) : data;
-            if (parsed.clients) {
-                clients = parsed.clients || [];
-                orders = parsed.orders || [];
-                dataVersion = parsed.version || 0;
-                migrateOldFormat();
-                saveToLocal();
-                renderAll();
-                setStatus('Загружено (v' + dataVersion + ')');
-            }
-        } catch (e) {
-            console.error('Ошибка обработки данных от бота:', e);
-            setStatus('Ошибка загрузки');
-        }
-    });
+    saveToFirebase();
 }
 
 // ---------- ВСПОМОГАТЕЛЬНЫЕ ----------
@@ -649,7 +662,6 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
-// Безопасная версия без HTML-сущностей в коде
 function escapeAttr(text) {
     if (text === undefined || text === null) return '';
     const AMP = String.fromCharCode(38);
@@ -674,7 +686,6 @@ function renderAll() {
     renderTempExpenses();
 }
 
-loadFromLocal();
-renderAll();
-setStatus('Готово');
-console.log('🔧 Автосервис Админ v5.0 запущен');
+// ---------- СТАРТ ----------
+init();
+console.log('🔧 Автосервис Админ v6.0 — Firebase Sync');
