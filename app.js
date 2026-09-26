@@ -1,6 +1,6 @@
 // ============================================================
-// Автосервис Админ v4.0 — Mini App для Telegram
-// Полное редактирование клиентов (имя, телефон, авто) и заказов
+// Автосервис Админ v5.0 — Mini App для Telegram
+// Полное редактирование клиентов (включая каждое авто) и заказов
 // ============================================================
 
 const tg = window.Telegram?.WebApp;
@@ -13,15 +13,13 @@ let dataVersion = 0;
 let tempCars = [];
 let tempExpenses = [];
 
-// Состояния выбора для формы нового заказа
 let selectedClientIdx = null;
 let selectedCarIdx = null;
 
-// Состояния редактирования
-let editClientIdx = null;     // индекс редактируемого клиента
-let editClientCars = [];      // временный список авто при редактировании
-let editOrderIdx = null;      // индекс редактируемого заказа
-let editOrderExpenses = [];   // временный список расходов при редактировании
+let editClientIdx = null;
+let editClientCars = [];
+let editOrderIdx = null;
+let editOrderExpenses = [];
 
 // ============================================================
 //  ХРАНИЛИЩЕ
@@ -170,31 +168,14 @@ function cancelEditClient() {
     renderClients();
 }
 
-function saveEditClient() {
-    const name = document.getElementById(`editName_${editClientIdx}`).value.trim();
-    const phone = document.getElementById(`editPhone_${editClientIdx}`).value.trim();
-    if (!name) { alert('Введите ФИО'); return; }
-    if (editClientCars.length === 0) { alert('Добавьте хотя бы одно авто'); return; }
-
-    // Сохраняем состояния пикеров
-    const prevSelectedClient = selectedClientIdx;
-    const prevSelectedCar = selectedCarIdx;
-
-    clients[editClientIdx].name = name;
-    clients[editClientIdx].phone = phone;
-    clients[editClientIdx].cars = [...editClientCars];
-
-    editClientIdx = null;
-    editClientCars = [];
-
-    // Сбрасываем выбор, если авто изменилось
-    selectedClientIdx = null;
-    selectedCarIdx = null;
-    saveToLocal();
-    renderAll();
-    setStatus('Клиент обновлён');
+// Обновление поля существующего авто (без перерисовки)
+function updateEditCar(idx, field, value) {
+    if (editClientCars[idx]) {
+        editClientCars[idx][field] = value;
+    }
 }
 
+// Добавить новое авто в редактируемого клиента
 function addEditCar() {
     const model = document.getElementById(`editCarModel_${editClientIdx}`).value.trim();
     const plate = document.getElementById(`editCarPlate_${editClientIdx}`).value.trim();
@@ -203,9 +184,40 @@ function addEditCar() {
     renderClients();
 }
 
+// Удалить авто из редактируемого клиента
 function removeEditCar(idx) {
+    if (!confirm('Удалить это авто?')) return;
     editClientCars.splice(idx, 1);
     renderClients();
+}
+
+// Сохранить все изменения клиента
+function saveEditClient() {
+    const name = document.getElementById(`editName_${editClientIdx}`).value.trim();
+    const phone = document.getElementById(`editPhone_${editClientIdx}`).value.trim();
+    if (!name) { alert('Введите ФИО'); return; }
+    if (editClientCars.length === 0) { alert('Добавьте хотя бы одно авто'); return; }
+
+    // Проверяем, что у каждого авто есть модель
+    for (const car of editClientCars) {
+        if (!car.model || !car.model.trim()) {
+            alert('У каждого авто должна быть марка и модель');
+            return;
+        }
+    }
+
+    clients[editClientIdx].name = name;
+    clients[editClientIdx].phone = phone;
+    clients[editClientIdx].cars = editClientCars.map(c => ({ model: c.model.trim(), plate: (c.plate || '').trim() }));
+
+    editClientIdx = null;
+    editClientCars = [];
+
+    selectedClientIdx = null;
+    selectedCarIdx = null;
+    saveToLocal();
+    renderAll();
+    setStatus('Клиент обновлён');
 }
 
 // ============================================================
@@ -225,8 +237,9 @@ function renderClients() {
             return `
             <div class="card" style="border-color:#ffc107;">
                 <div class="card-header">
-                    <strong>✏️ Редактирование</strong>
+                    <strong>✏️ Редактирование клиента</strong>
                 </div>
+
                 <label>ФИО:</label>
                 <input type="text" id="editName_${i}" value="${escapeAttr(c.name)}" />
                 <label>Телефон:</label>
@@ -234,20 +247,29 @@ function renderClients() {
 
                 <div class="sub-section">
                     <div class="sub-title">🚗 Автомобили</div>
+                    ${editClientCars.length === 0 ? '<div class="empty" style="padding:8px 0;">Авто пока нет</div>' : ''}
                     ${editClientCars.map((car, idx) => `
-                        <div class="car-line">
-                            <span class="car-info">🚗 ${escapeHtml(car.model)}${car.plate ? ` · ${escapeHtml(car.plate)}` : ''}</span>
-                            <button class="btn-icon delete" onclick="removeEditCar(${idx})">✕</button>
+                        <div style="margin-bottom:8px; padding:8px; background:rgba(0,0,0,0.04); border-radius:6px; border-left:3px solid #2ea6ff;">
+                            <label>Марка, модель:</label>
+                            <input type="text" value="${escapeAttr(car.model || '')}"
+                                   oninput="updateEditCar(${idx}, 'model', this.value)" />
+                            <label>Гос. номер:</label>
+                            <input type="text" value="${escapeAttr(car.plate || '')}"
+                                   oninput="updateEditCar(${idx}, 'plate', this.value)" />
+                            <button class="btn-secondary" style="background:#dc3545; color:#fff; margin-top:4px;"
+                                    onclick="removeEditCar(${idx})">🗑 Удалить это авто</button>
                         </div>
                     `).join('')}
-                    <div style="margin-top:8px;">
-                        <input type="text" id="editCarModel_${i}" placeholder="Марка, модель (новое авто)" />
+
+                    <div style="margin-top:12px; padding-top:12px; border-top:1px dashed rgba(0,0,0,0.15);">
+                        <div class="sub-title">➕ Добавить новое авто</div>
+                        <input type="text" id="editCarModel_${i}" placeholder="Марка, модель" />
                         <input type="text" id="editCarPlate_${i}" placeholder="Гос. номер (необязательно)" />
-                        <button class="btn-secondary" onclick="addEditCar()">➕ Добавить авто</button>
+                        <button class="btn-secondary" onclick="addEditCar()">➕ Добавить</button>
                     </div>
                 </div>
 
-                <button class="btn-success" onclick="saveEditClient()">✓ Сохранить</button>
+                <button class="btn-success" onclick="saveEditClient()">✓ Сохранить всё</button>
                 <button class="btn-secondary" onclick="cancelEditClient()">Отмена</button>
             </div>
             `;
@@ -479,7 +501,6 @@ function renderOrders() {
     }
 
     container.innerHTML = orders.map((o, i) => {
-        // Режим редактирования
         if (editOrderIdx === i) {
             const expensesTotal = editOrderExpenses.reduce((s, e) => s + e.amount, 0);
             return `
@@ -525,7 +546,6 @@ function renderOrders() {
             `;
         }
 
-        // Обычный режим
         const expensesTotal = (o.expenses || []).reduce((s, e) => s + e.amount, 0);
         const profit = (o.cost || 0) - expensesTotal;
         const dl = getDeadlineInfo(o.deadline);
@@ -655,7 +675,6 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
-// Для value="" в input — экранируем кавычки
 function escapeAttr(text) {
     if (text === undefined || text === null) return '';
     return String(text).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -676,4 +695,4 @@ function renderAll() {
 loadFromLocal();
 renderAll();
 setStatus('Готово');
-console.log('🔧 Автосервис Админ v4.0 запущен');
+console.log('🔧 Автосервис Админ v5.0 запущен');
