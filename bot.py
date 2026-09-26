@@ -12,7 +12,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 
 # ---------- НАСТРОЙКИ ----------
 # Вставьте сюда токен, который получили от BotFather
-BOT_TOKEN = "8981099164:AAEzU3pjJX4MwZWPqYxTPzZXu6GfT1kK8iE"
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
 # Вставьте сюда URL вашего приложения на GitHub Pages
 # (появится после размещения на GitHub, пока оставьте так)
