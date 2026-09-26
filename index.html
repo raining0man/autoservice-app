@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Автосервис Админ</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--tg-theme-bg-color, #f0f0f0);
+            color: var(--tg-theme-text-color, #000);
+            padding: 16px;
+            padding-bottom: 80px;
+        }
+        h1 { font-size: 20px; margin-bottom: 16px; text-align: center; }
+        .section {
+            background: var(--tg-theme-secondary-bg-color, #fff);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 16px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .section h2 { font-size: 16px; margin-bottom: 12px; }
+        input, textarea, select {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 10px;
+            border: 1px solid var(--tg-theme-hint-color, #ccc);
+            border-radius: 8px;
+            font-size: 14px;
+            background: var(--tg-theme-bg-color, #fff);
+            color: var(--tg-theme-text-color, #000);
+        }
+        button {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-bottom: 8px;
+            transition: opacity 0.2s;
+        }
+        button:active { opacity: 0.7; }
+        .btn-primary {
+            background: var(--tg-theme-button-color, #2ea6ff);
+            color: var(--tg-theme-button-text-color, #fff);
+        }
+        .btn-secondary {
+            background: var(--tg-theme-secondary-bg-color, #e0e0e0);
+            color: var(--tg-theme-text-color, #000);
+        }
+        .btn-success { background: #28a745; color: #fff; }
+        .btn-warning { background: #ffc107; color: #000; }
+        .item {
+            border-bottom: 1px solid var(--tg-theme-hint-color, #eee);
+            padding: 10px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .item:last-child { border-bottom: none; }
+        .item-info { flex: 1; }
+        .item-info strong { display: block; font-size: 14px; }
+        .item-info small { color: var(--tg-theme-hint-color, #888); font-size: 12px; }
+        .delete-btn {
+            background: #dc3545;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            padding: 6px 10px;
+            font-size: 12px;
+            width: auto;
+            cursor: pointer;
+        }
+        .empty { text-align: center; color: #888; font-size: 14px; padding: 20px 0; }
+        .status-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: var(--tg-theme-secondary-bg-color, #fff);
+            border-top: 1px solid #eee;
+            padding: 10px 16px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            color: #888;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔧 Автосервис Админ</h1>
+
+    <!-- Учёт клиентов -->
+    <div class="section">
+        <h2>👤 Клиенты</h2>
+        <input type="text" id="clientName" placeholder="ФИО клиента" />
+        <input type="tel" id="clientPhone" placeholder="Телефон" />
+        <input type="text" id="clientCar" placeholder="Автомобиль (марка, модель)" />
+        <button class="btn-primary" onclick="addClient()">Добавить клиента</button>
+        <div id="clientsList"><div class="empty">Нет клиентов</div></div>
+    </div>
+
+    <!-- Учёт заказов -->
+    <div class="section">
+        <h2>📋 Заказы</h2>
+        <select id="orderClient">
+            <option value="">-- Выберите клиента --</option>
+        </select>
+        <input type="text" id="orderWork" placeholder="Описание работ" />
+        <input type="number" id="orderCost" placeholder="Стоимость (руб.)" />
+        <button class="btn-primary" onclick="addOrder()">Добавить заказ</button>
+        <div id="ordersList"><div class="empty">Нет заказов</div></div>
+    </div>
+
+    <!-- Синхронизация -->
+    <div class="section">
+        <h2>🔄 Синхронизация</h2>
+        <p style="font-size:13px; margin-bottom:12px; color:#888;">
+            Сохраните данные в Telegram, чтобы открыть их на другом устройстве.
+        </p>
+        <button class="btn-success" onclick="saveToTelegram()">💾 Сохранить в Telegram</button>
+        <button class="btn-warning" onclick="loadFromTelegram()">📥 Загрузить из Telegram</button>
+        <button class="btn-secondary" onclick="clearAll()">🗑 Очистить всё</button>
+    </div>
+
+    <!-- Статус -->
+    <div class="status-bar">
+        <span id="statusText">Готово</span>
+        <span id="versionText">v1.0</span>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
