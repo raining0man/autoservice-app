@@ -1035,4 +1035,206 @@ function renderBizExpenses() {
                 </div>
                 <div class="card-actions">
                     <button class="btn-icon ${e.paid ? 'unpaid' : 'paid'}" onclick="toggleBizExpensePaid('${e.id}')"
-                        title="${e.paid ? 'Вернуть в план' : 'От
+                        title="${e.paid ? 'Вернуть в план' : 'Отметить оплачено'}">${e.paid ? '↩️' : '✅'}</button>
+                    <button class="btn-icon edit" onclick="startEditBizExpense('${e.id}')">✏️</button>
+                    <button class="btn-icon delete" onclick="deleteBizExpense('${e.id}')">✕</button>
+                </div>
+            </div>
+            <div class="order-row">
+                <span class="label">Сумма:</span>
+                <span><b>${e.amount.toFixed(0)} ₽</b></span>
+            </div>
+            <div class="order-row">
+                <span class="label">Статус:</span>
+                <span>${paidBadge}</span>
+            </div>
+            ${e.comment ? `<div class="order-comment">💬 ${escapeHtml(e.comment)}</div>` : ''}
+        </div>`;
+    }).join('');
+}
+
+function renderBizExpTotals() {
+    const el = document.getElementById('bizExpTotalsTotal');
+    if (!el) return;
+
+    let paidAll = 0, plannedAll = 0, overdueAll = 0;
+    let paidMonth = 0, plannedMonth = 0;
+
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+
+    businessExpenses.forEach(e => {
+        const amt = e.amount || 0;
+        const d = parseDate(e.date);
+        if (e.paid) {
+            paidAll += amt;
+            if (d && d >= monthStart && d <= monthEnd) paidMonth += amt;
+        } else {
+            plannedAll += amt;
+            if (d && d >= monthStart && d <= monthEnd) plannedMonth += amt;
+            if (isBizExpOverdue(e)) overdueAll += amt;
+        }
+    });
+
+    function box(title, value, sub, cls) {
+        return `<div class="total-box"><div class="total-title">${title}</div><div class="total-value ${cls || ''}">${value}</div>${sub ? `<div class="total-sub">${sub}</div>` : ''}</div>`;
+    }
+
+    el.innerHTML =
+        box('Оплачено (всего)', paidAll.toFixed(0) + ' ₽', '', 'loss') +
+        box('Планируется (всего)', plannedAll.toFixed(0) + ' ₽') +
+        box('Просрочено', overdueAll.toFixed(0) + ' ₽', '', overdueAll > 0 ? 'loss' : '') +
+        box('Оплачено (месяц)', paidMonth.toFixed(0) + ' ₽', '', 'loss') +
+        box('План (месяц)', plannedMonth.toFixed(0) + ' ₽') +
+        box('Всего записей', businessExpenses.length);
+}
+
+// ============================================================
+//  ОБЩИЕ ИТОГИ
+// ============================================================
+
+function calcTotals() {
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    function empty() {
+        return { count: 0, cost: 0, prepay: 0, expense: 0, profit: 0, bizPaid: 0, done: 0, in_progress: 0, callback: 0, inspection: 0, processing: 0, refused: 0 };
+    }
+    let total = empty(), month = empty();
+
+    orders.forEach(o => {
+        const exp = (o.expenses || []).reduce((s, e) => s + e.amount, 0);
+        const prepay = o.prepayment || 0;
+        const cost = o.cost || 0;
+        const profit = prepay - exp;
+        const st = o.status || 'in_progress';
+
+        total.count++;
+        total.cost += cost;
+        total.prepay += prepay;
+        total.expense += exp;
+        total.profit += profit;
+        if (st === 'done') total.done++;
+        else if (st === 'in_progress') total.in_progress++;
+        else if (st === 'callback') total.callback++;
+        else if (st === 'inspection') total.inspection++;
+        else if (st === 'processing') total.processing++;
+        else if (st === 'refused') total.refused++;
+
+        let created = null;
+        if (o.createdAt) created = new Date(o.createdAt);
+        else if (o.date) {
+            const p = o.date.split('.');
+            if (p.length === 3) created = new Date(p[2], p[1] - 1, p[0]);
+        }
+        if (created && created >= monthStart) {
+            month.count++;
+            month.cost += cost;
+            month.prepay += prepay;
+            month.expense += exp;
+            month.profit += profit;
+            if (st === 'done') month.done++;
+            else if (st === 'in_progress') month.in_progress++;
+            else if (st === 'callback') month.callback++;
+            else if (st === 'inspection') month.inspection++;
+            else if (st === 'processing') month.processing++;
+            else if (st === 'refused') month.refused++;
+        }
+    });
+
+    businessExpenses.forEach(e => {
+        if (!e.paid) return;
+        const d = parseDate(e.date);
+        if (!d) return;
+        total.bizPaid += e.amount || 0;
+        if (d >= monthStart) month.bizPaid += e.amount || 0;
+    });
+
+    return { total, month };
+}
+
+function renderTotals() {
+    const t = calcTotals();
+    const elTotal = document.getElementById('totalsTotal');
+    const elMonth = document.getElementById('totalsMonth');
+    if (!elTotal || !elMonth) return;
+
+    function box(title, value, sub, cls) {
+        return `<div class="total-box"><div class="total-title">${title}</div><div class="total-value ${cls || ''}">${value}</div>${sub ? `<div class="total-sub">${sub}</div>` : ''}</div>`;
+    }
+
+    function makeGrid(s) {
+        const netProfit = s.profit - s.bizPaid;
+        return box('Всего заказов', s.count) +
+               box('Прибыль по заказам', s.profit.toFixed(0) + ' ₽', 'предоплата − расходы по заказам', s.profit >= 0 ? 'profit' : 'loss') +
+               box('Расходы бизнеса', s.bizPaid.toFixed(0) + ' ₽', 'оплачено', s.bizPaid > 0 ? 'loss' : '') +
+               box('Чистая прибыль', netProfit.toFixed(0) + ' ₽', 'прибыль − расходы бизнеса', netProfit >= 0 ? 'profit' : 'loss') +
+               box('Готовых', s.done, '', 'profit') +
+               box('В работе', s.in_progress) +
+               box('Перезвонить', s.callback) +
+               box('Осмотр', s.inspection) +
+               box('Обработка', s.processing) +
+               box('Отказ', s.refused) +
+               box('Предоплаты', s.prepay.toFixed(0) + ' ₽') +
+               box('Расходы по заказам', s.expense.toFixed(0) + ' ₽') +
+               box('Сумма работ', s.cost.toFixed(0) + ' ₽');
+    }
+
+    elTotal.innerHTML = makeGrid(t.total);
+    elMonth.innerHTML = makeGrid(t.month);
+}
+
+// ============================================================
+//  ОЧИСТКА И ВСПОМОГАТЕЛЬНЫЕ
+// ============================================================
+
+function clearAll() {
+    if (!confirm('Удалить ВСЕ данные? Это действие необратимо!')) return;
+    clients = []; orders = []; businessExpenses = []; tempCars = []; tempExpenses = [];
+    selectedClientIdx = null; selectedCarIdx = null;
+    editClientIdx = null; editClientCars = [];
+    editOrderIdx = null; editOrderExpenses = [];
+    editBizExpIdx = null;
+    renderAll();
+    saveToFirebase();
+    toastOk('Все данные удалены');
+}
+
+function escapeHtml(text) {
+    if (text === undefined || text === null) return '';
+    const div = document.createElement('div');
+    div.textContent = String(text);
+    return div.innerHTML;
+}
+
+function escapeAttr(text) {
+    if (text === undefined || text === null) return '';
+    const AMP = String.fromCharCode(38);
+    const QUOT = String.fromCharCode(34);
+    const LT = String.fromCharCode(60);
+    const GT = String.fromCharCode(62);
+    return String(text).split(AMP).join(AMP + 'amp;').split(QUOT).join(AMP + 'quot;').split(LT).join(AMP + 'lt;').split(GT).join(AMP + 'gt;');
+}
+
+function renderAll() {
+    renderClients();
+    renderClientPicker();
+    renderCarPicker();
+    updateOrderFormVisibility();
+    renderOrders();
+    renderBizExpenses();
+    renderBizExpTotals();
+    renderTotals();
+    updateVersionDisplay();
+    renderTempCars();
+    renderTempExpenses();
+}
+
+// Глобальный обработчик ошибок для отладки
+window.addEventListener('error', function(ev) {
+    console.error('Global error:', ev.message, 'at', ev.filename + ':' + ev.lineno);
+});
+
+init();
+console.log('🔧 Автосервис Админ v10.1');
