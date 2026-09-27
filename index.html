@@ -57,37 +57,14 @@
             transition: opacity 0.2s;
         }
         button:active { opacity: 0.7; }
-        .btn-primary {
-            background: var(--tg-theme-button-color, #2ea6ff);
-            color: var(--tg-theme-button-text-color, #fff);
-        }
-        .btn-secondary {
-            background: var(--tg-theme-secondary-bg-color, #e0e0e0);
-            color: var(--tg-theme-text-color, #000);
-            font-size: 14px;
-            padding: 10px;
-        }
+        .btn-primary { background: var(--tg-theme-button-color, #2ea6ff); color: var(--tg-theme-button-text-color, #fff); }
+        .btn-secondary { background: var(--tg-theme-secondary-bg-color, #e0e0e0); color: var(--tg-theme-text-color, #000); font-size: 14px; padding: 10px; }
         .btn-success { background: #28a745; color: #fff; }
 
-        .sub-section {
-            background: rgba(0,0,0,0.04);
-            border-radius: 8px;
-            padding: 10px;
-            margin: 8px 0 12px 0;
-        }
-        .sub-title {
-            font-size: 13px;
-            color: var(--tg-theme-hint-color, #888);
-            margin-bottom: 8px;
-            font-weight: 600;
-        }
+        .sub-section { background: rgba(0,0,0,0.04); border-radius: 8px; padding: 10px; margin: 8px 0 12px 0; }
+        .sub-title { font-size: 13px; color: var(--tg-theme-hint-color, #888); margin-bottom: 8px; font-weight: 600; }
 
-        .picker-list {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-            margin-bottom: 8px;
-        }
+        .picker-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
         .picker-btn {
             background: var(--tg-theme-bg-color, #fff);
             color: var(--tg-theme-text-color, #000);
@@ -100,220 +77,78 @@
             font-weight: 400;
             margin: 0;
         }
-        .picker-btn.active {
-            border-color: var(--tg-theme-button-color, #2ea6ff);
-            background: rgba(46, 166, 255, 0.1);
-            font-weight: 600;
-        }
-        .picker-btn small {
-            display: block;
-            color: #888;
-            font-size: 12px;
-            font-weight: 400;
-            margin-top: 2px;
-        }
+        .picker-btn.active { border-color: var(--tg-theme-button-color, #2ea6ff); background: rgba(46, 166, 255, 0.1); font-weight: 600; }
+        .picker-btn small { display: block; color: #888; font-size: 12px; font-weight: 400; margin-top: 2px; }
 
         .temp-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 6px 10px;
-            background: var(--tg-theme-bg-color, #fff);
-            border-radius: 6px;
-            margin-bottom: 6px;
-            font-size: 13px;
-            gap: 8px;
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 6px 10px; background: var(--tg-theme-bg-color, #fff);
+            border-radius: 6px; margin-bottom: 6px; font-size: 13px; gap: 8px;
         }
         .temp-item span { flex: 1; }
-        .temp-item button {
-            width: auto;
-            padding: 4px 8px;
-            font-size: 12px;
-            margin: 0;
-            background: #dc3545;
-            color: #fff;
-        }
+        .temp-item button { width: auto; padding: 4px 8px; font-size: 12px; margin: 0; background: #dc3545; color: #fff; }
 
-        .card {
-            border: 1px solid var(--tg-theme-hint-color, #eee);
-            border-radius: 8px;
-            padding: 10px;
-            margin-bottom: 8px;
-        }
-        .card-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 6px;
-            gap: 6px;
-        }
+        .card { border: 1px solid var(--tg-theme-hint-color, #eee); border-radius: 8px; padding: 10px; margin-bottom: 8px; }
+        .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; gap: 6px; }
         .card-header strong { font-size: 14px; }
         .card-header small { color: #888; font-size: 12px; display: block; }
-        .card-actions {
-            display: flex;
-            gap: 4px;
-            flex-shrink: 0;
-        }
-        .btn-icon {
-            width: auto;
-            padding: 6px 8px;
-            font-size: 14px;
-            border-radius: 6px;
-            margin: 0;
-            background: #e0e0e0;
-            color: #000;
-        }
+        .card-actions { display: flex; gap: 4px; flex-shrink: 0; }
+        .btn-icon { width: auto; padding: 6px 8px; font-size: 14px; border-radius: 6px; margin: 0; background: #e0e0e0; color: #000; }
         .btn-icon.delete { background: #dc3545; color: #fff; }
         .btn-icon.edit { background: #ffc107; color: #000; }
 
-        .car-line {
-            font-size: 12px;
-            color: #666;
-            padding: 2px 0;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            gap: 6px;
-        }
+        .car-line { font-size: 12px; color: #666; padding: 2px 0; display: flex; justify-content: space-between; align-items: center; gap: 6px; }
         .car-line .car-info { flex: 1; }
+        .car-extra { font-size: 11px; color: #888; padding-left: 20px; }
 
-        .order-row {
-            display: flex;
-            justify-content: space-between;
-            font-size: 13px;
-            padding: 3px 0;
-            border-bottom: 1px dashed rgba(0,0,0,0.06);
-        }
+        .order-row { display: flex; justify-content: space-between; font-size: 13px; padding: 3px 0; border-bottom: 1px dashed rgba(0,0,0,0.06); }
         .order-row:last-child { border-bottom: none; }
         .order-row .label { color: #888; }
-        .order-expenses {
-            margin-top: 6px;
-            padding: 6px 8px;
-            background: rgba(0,0,0,0.03);
-            border-radius: 6px;
-            font-size: 12px;
-        }
-        .order-expenses .exp-item {
-            display: flex;
-            justify-content: space-between;
-            padding: 2px 0;
-        }
-        .order-comment {
-            margin-top: 6px;
-            padding: 6px 8px;
-            background: rgba(46, 166, 255, 0.08);
-            border-left: 3px solid #2ea6ff;
-            border-radius: 4px;
-            font-size: 12px;
-            font-style: italic;
-        }
-        .order-total {
-            margin-top: 8px;
-            padding-top: 8px;
-            border-top: 2px solid rgba(0,0,0,0.08);
-            font-size: 13px;
-            font-weight: 600;
-        }
+        .order-expenses { margin-top: 6px; padding: 6px 8px; background: rgba(0,0,0,0.03); border-radius: 6px; font-size: 12px; }
+        .order-expenses .exp-item { display: flex; justify-content: space-between; padding: 2px 0; }
+        .order-comment { margin-top: 6px; padding: 6px 8px; background: rgba(46, 166, 255, 0.08); border-left: 3px solid #2ea6ff; border-radius: 4px; font-size: 12px; font-style: italic; }
+        .order-total { margin-top: 8px; padding-top: 8px; border-top: 2px solid rgba(0,0,0,0.08); font-size: 13px; font-weight: 600; }
         .order-total .profit { color: #28a745; }
         .order-total .loss { color: #dc3545; }
+        .order-elapsed { font-size: 11px; color: #888; margin-left: 6px; font-weight: 400; }
 
-        .badge {
-            display: inline-block;
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-size: 11px;
-            background: #ffe4b5;
-            color: #8b4513;
-            margin-left: 4px;
-        }
+        .badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 11px; background: #ffe4b5; color: #8b4513; margin-left: 4px; }
         .badge.overdue { background: #ffcccc; color: #a00; }
         .badge.today { background: #fff3cd; color: #856404; }
         .badge.ok { background: #d4edda; color: #155724; }
-        .badge.status-in_progress { background: #cfe2ff; color: #084298; }
+        .badge.status-callback { background: #fff3cd; color: #856404; }
+        .badge.status-inspection { background: #cfe2ff; color: #084298; }
+        .badge.status-processing { background: #e2d5f1; color: #5a2d82; }
+        .badge.status-in_progress { background: #d1ecf1; color: #0c5460; }
         .badge.status-done { background: #d4edda; color: #155724; }
+        .badge.status-refused { background: #f8d7da; color: #721c24; }
         .badge.type { background: #e2e3e5; color: #41464b; }
 
         .empty { text-align: center; color: #888; font-size: 14px; padding: 20px 0; }
 
         .status-bar {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
+            position: fixed; bottom: 0; left: 0; right: 0;
             background: var(--tg-theme-secondary-bg-color, #fff);
-            border-top: 1px solid #eee;
-            padding: 10px 16px;
-            display: flex;
-            justify-content: space-between;
-            font-size: 12px;
-            color: #888;
+            border-top: 1px solid #eee; padding: 10px 16px;
+            display: flex; justify-content: space-between;
+            font-size: 12px; color: #888;
         }
-        .sync-dot {
-            display: inline-block;
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            margin-right: 6px;
-            background: #ffc107;
-            vertical-align: middle;
-        }
+        .sync-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: #ffc107; vertical-align: middle; }
         .sync-dot.ok { background: #28a745; }
         .sync-dot.error { background: #dc3545; }
 
-        .totals-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 8px;
-        }
-        .total-box {
-            background: rgba(0,0,0,0.04);
-            border-radius: 8px;
-            padding: 10px;
-        }
-        .total-box .total-title {
-            font-size: 11px;
-            color: #888;
-            margin-bottom: 4px;
-            text-transform: uppercase;
-        }
-        .total-box .total-value {
-            font-size: 16px;
-            font-weight: 700;
-        }
+        .totals-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .total-box { background: rgba(0,0,0,0.04); border-radius: 8px; padding: 10px; }
+        .total-box .total-title { font-size: 11px; color: #888; margin-bottom: 4px; text-transform: uppercase; }
+        .total-box .total-value { font-size: 16px; font-weight: 700; }
         .total-box .total-value.profit { color: #28a745; }
         .total-box .total-value.loss { color: #dc3545; }
-        .total-box .total-sub {
-            font-size: 11px;
-            color: #888;
-            margin-top: 2px;
-        }
-        .totals-header {
-            font-size: 13px;
-            font-weight: 600;
-            margin: 12px 0 6px 0;
-            color: #666;
-        }
+        .total-box .total-sub { font-size: 11px; color: #888; margin-top: 2px; }
+        .totals-header { font-size: 13px; font-weight: 600; margin: 12px 0 6px 0; color: #666; }
 
-        .filters {
-            display: flex;
-            gap: 6px;
-            margin-bottom: 10px;
-            flex-wrap: wrap;
-        }
-        .filter-btn {
-            width: auto;
-            padding: 6px 12px;
-            font-size: 12px;
-            border-radius: 14px;
-            margin: 0;
-            background: #e0e0e0;
-            color: #000;
-            font-weight: 500;
-        }
-        .filter-btn.active {
-            background: var(--tg-theme-button-color, #2ea6ff);
-            color: #fff;
-        }
+        .filters { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+        .filter-btn { width: auto; padding: 6px 12px; font-size: 12px; border-radius: 14px; margin: 0; background: #e0e0e0; color: #000; font-weight: 500; }
+        .filter-btn.active { background: var(--tg-theme-button-color, #2ea6ff); color: #fff; }
     </style>
 </head>
 <body>
@@ -321,7 +156,7 @@
 
     <div class="section">
         <h2>👤 Клиенты</h2>
-        <input type="text" id="searchInput" placeholder="🔍 Поиск по ФИО, телефону, авто..." oninput="onSearchInput()" />
+        <input type="text" id="searchInput" placeholder="🔍 Поиск по ФИО, телефону, авто, VIN..." oninput="onSearchInput()" />
         <input type="text" id="clientName" placeholder="ФИО клиента" />
         <input type="tel" id="clientPhone" placeholder="Телефон" />
         <textarea id="clientComment" placeholder="Комментарий (необязательно)" rows="2"></textarea>
@@ -330,6 +165,8 @@
             <div class="sub-title">🚗 Автомобили клиента</div>
             <input type="text" id="carModel" placeholder="Марка, модель (напр. Toyota Camry)" />
             <input type="text" id="carPlate" placeholder="Гос. номер (необязательно)" />
+            <input type="text" id="carVin" placeholder="VIN (необязательно)" />
+            <input type="text" id="carPaintCode" placeholder="Код краски (необязательно)" />
             <button class="btn-secondary" onclick="addCarToList()">➕ Добавить авто</button>
             <div id="carsTempList"></div>
         </div>
@@ -343,15 +180,17 @@
 
         <div class="filters">
             <button class="filter-btn active" data-status="all" onclick="setOrderFilter('all')">Все</button>
-            <button class="filter-btn" data-status="in_progress" onclick="setOrderFilter('in_progress')">В работе</button>
-            <button class="filter-btn" data-status="done" onclick="setOrderFilter('done')">Готовые</button>
+            <button class="filter-btn" data-status="callback" onclick="setOrderFilter('callback')">📞</button>
+            <button class="filter-btn" data-status="inspection" onclick="setOrderFilter('inspection')">🔍</button>
+            <button class="filter-btn" data-status="processing" onclick="setOrderFilter('processing')">📋</button>
+            <button class="filter-btn" data-status="in_progress" onclick="setOrderFilter('in_progress')">🔧</button>
+            <button class="filter-btn" data-status="done" onclick="setOrderFilter('done')">✅</button>
+            <button class="filter-btn" data-status="refused" onclick="setOrderFilter('refused')">❌</button>
         </div>
 
         <div class="sub-section">
             <div class="sub-title">1. Выберите клиента:</div>
-            <div id="clientPicker" class="picker-list">
-                <div class="empty">Сначала добавьте клиента</div>
-            </div>
+            <div id="clientPicker" class="picker-list"><div class="empty">Сначала добавьте клиента</div></div>
         </div>
 
         <div class="sub-section" id="carPickerSection" style="display:none;">
@@ -370,6 +209,16 @@
 
             <label>Описание работ:</label>
             <input type="text" id="orderWork" placeholder="Напр. Замена масла" />
+
+            <label>Статус:</label>
+            <select id="orderStatus">
+                <option value="callback">📞 Перезвонить</option>
+                <option value="inspection">🔍 Осмотр</option>
+                <option value="processing">📋 Обработка</option>
+                <option value="in_progress" selected>🔧 В работе</option>
+                <option value="done">✅ Готов</option>
+                <option value="refused">❌ Отказ</option>
+            </select>
 
             <label>Стоимость работ (руб.):</label>
             <input type="number" id="orderCost" placeholder="0" />
@@ -414,10 +263,7 @@
     </div>
 
     <div class="status-bar">
-        <span>
-            <span class="sync-dot" id="syncDot"></span>
-            <span id="statusText">Подключение...</span>
-        </span>
+        <span><span class="sync-dot" id="syncDot"></span><span id="statusText">Подключение...</span></span>
         <span id="versionText">v0</span>
     </div>
 
