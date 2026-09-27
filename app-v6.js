@@ -1,7 +1,6 @@
 // ============================================================
-// Автосервис Админ v10.1 — Firebase Sync
-// - Название заказа = Вид работ
-// - Тост-уведомления вместо alert (работают в Telegram)
+// Автосервис Админ v10.3 — Firebase Sync
+// Итоги: отдельные строки для оплаченных и запланированных расходов бизнеса
 // ============================================================
 
 const firebaseConfig = {
@@ -65,7 +64,6 @@ function genId(prefix) {
     return prefix + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
-// ---------- Тост-уведомления ----------
 function toast(message, type) {
     const el = document.getElementById('app-toast');
     if (!el) { console.log('[toast]', message); return; }
@@ -78,7 +76,6 @@ function toast(message, type) {
 function toastErr(msg) { toast(msg, 'error'); }
 function toastOk(msg) { toast(msg, 'success'); }
 
-// ---------- Статус синхронизации ----------
 function setStatus(text, state) {
     const el = document.getElementById('statusText');
     const dot = document.getElementById('syncDot');
@@ -91,7 +88,6 @@ function updateVersionDisplay() {
     if (el) el.textContent = 'v' + dataVersion;
 }
 
-// ---------- Кэш ----------
 function saveToLocalCache() {
     try {
         localStorage.setItem('autoservice_cache', JSON.stringify({
@@ -145,7 +141,6 @@ function migrateData() {
     });
 }
 
-// ---------- Firebase ----------
 async function saveToFirebase() {
     saveToLocalCache();
     if (!isReady) { setStatus('Ожидание подключения...', ''); return; }
@@ -236,11 +231,9 @@ async function init() {
         setStatus('Ошибка авторизации: ' + e.code, 'error');
         isReady = true;
     }
-    // Автозаполнение полей расхода бизнеса
     setTimeout(onBizExpCategoryChange, 100);
 }
 
-// ---------- Временные списки ----------
 function addCarToList() {
     const model = document.getElementById('carModel').value.trim();
     const plate = document.getElementById('carPlate').value.trim();
@@ -296,7 +289,6 @@ function renderTempExpenses() {
     `).join('') + `<div style="font-size:12px; color:#888; text-align:right; padding:4px 8px 0 0;">Итого: <b>${total.toFixed(0)} ₽</b></div>`;
 }
 
-// ---------- Клиенты ----------
 function addClient() {
     const name = document.getElementById('clientName').value.trim();
     const phone = document.getElementById('clientPhone').value.trim();
@@ -541,7 +533,6 @@ function updateOrderFormVisibility() {
     }
 }
 
-// ---------- Заказы ----------
 function addOrder() {
     if (selectedClientIdx === null) { toastErr('Выберите клиента'); return; }
     if (selectedCarIdx === null) { toastErr('Выберите автомобиль'); return; }
@@ -893,8 +884,6 @@ function addBizExpense() {
         const comment = document.getElementById('bizExpComment').value.trim();
         const amount = parseFloat(amountStr) || 0;
 
-        console.log('addBizExpense:', { category, amount, date, comment });
-
         if (!amount || amount <= 0) { toastErr('Введите сумму больше нуля'); return; }
         if (!date) { toastErr('Выберите дату платежа'); return; }
 
@@ -1099,7 +1088,11 @@ function calcTotals() {
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
     function empty() {
-        return { count: 0, cost: 0, prepay: 0, expense: 0, profit: 0, bizPaid: 0, done: 0, in_progress: 0, callback: 0, inspection: 0, processing: 0, refused: 0 };
+        return {
+            count: 0, cost: 0, prepay: 0, expense: 0, profit: 0,
+            bizPaid: 0, bizPlanned: 0,
+            done: 0, in_progress: 0, callback: 0, inspection: 0, processing: 0, refused: 0
+        };
     }
     let total = empty(), month = empty();
 
@@ -1144,11 +1137,15 @@ function calcTotals() {
     });
 
     businessExpenses.forEach(e => {
-        if (!e.paid) return;
+        const amt = e.amount || 0;
         const d = parseDate(e.date);
         if (!d) return;
-        total.bizPaid += e.amount || 0;
-        if (d >= monthStart) month.bizPaid += e.amount || 0;
+        if (e.paid) total.bizPaid += amt;
+        else total.bizPlanned += amt;
+        if (d >= monthStart) {
+            if (e.paid) month.bizPaid += amt;
+            else month.bizPlanned += amt;
+        }
     });
 
     return { total, month };
@@ -1165,11 +1162,14 @@ function renderTotals() {
     }
 
     function makeGrid(s) {
-        const netProfit = s.profit - s.bizPaid;
+        const bizTotal = s.bizPaid + s.bizPlanned;
+        const netProfit = s.profit - bizTotal;
         return box('Всего заказов', s.count) +
                box('Прибыль по заказам', s.profit.toFixed(0) + ' ₽', 'предоплата − расходы по заказам', s.profit >= 0 ? 'profit' : 'loss') +
-               box('Расходы бизнеса', s.bizPaid.toFixed(0) + ' ₽', 'оплачено', s.bizPaid > 0 ? 'loss' : '') +
-               box('Чистая прибыль', netProfit.toFixed(0) + ' ₽', 'прибыль − расходы бизнеса', netProfit >= 0 ? 'profit' : 'loss') +
+               box('Оплачено (факт)', s.bizPaid.toFixed(0) + ' ₽', 'расходы бизнеса', s.bizPaid > 0 ? 'loss' : '') +
+               box('Запланировано', s.bizPlanned.toFixed(0) + ' ₽', 'предстоящие расходы', s.bizPlanned > 0 ? 'loss' : '') +
+               box('Всего расходов бизнеса', bizTotal.toFixed(0) + ' ₽', 'факт + план', bizTotal > 0 ? 'loss' : '') +
+               box('Чистая прибыль', netProfit.toFixed(0) + ' ₽', 'прибыль − все расходы бизнеса', netProfit >= 0 ? 'profit' : 'loss') +
                box('Готовых', s.done, '', 'profit') +
                box('В работе', s.in_progress) +
                box('Перезвонить', s.callback) +
@@ -1231,10 +1231,9 @@ function renderAll() {
     renderTempExpenses();
 }
 
-// Глобальный обработчик ошибок для отладки
 window.addEventListener('error', function(ev) {
     console.error('Global error:', ev.message, 'at', ev.filename + ':' + ev.lineno);
 });
 
 init();
-console.log('🔧 Автосервис Админ v10.1');
+console.log('🔧 Автосервис Админ v10.3');
