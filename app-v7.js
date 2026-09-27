@@ -1,7 +1,8 @@
 // ============================================================
-// Автосервис Админ v13.0 — Firebase Sync
-// + Сворачивание секций
-// + Навигация по месяцам в итогах
+// Автосервис Админ v13.1 — Firebase Sync
+// Логика расходов:
+// - аренда/ку/интернет: расход с датой в месяце X относится к X-1 (и оплачен, и плановый)
+// - маркетинг/оборудование/прочее: учитывается только оплаченный, по дате платежа
 // ============================================================
 
 const firebaseConfig = {
@@ -42,8 +43,6 @@ let firebaseConnected = false;
 let searchQuery = '';
 let orderFilter = 'all';
 let bizExpFilter = 'all';
-
-// Смещение отображаемого месяца в итогах (0 = текущий, -1 = прошлый и т.д.)
 let monthOffset = 0;
 
 const WORK_TYPES = ['Слесарные работы', 'Малярные работы', 'Кузовные работы', 'Арматурные работы'];
@@ -83,9 +82,7 @@ function toast(message, type) {
 function toastErr(msg) { toast(msg, 'error'); }
 function toastOk(msg) { toast(msg, 'success'); }
 
-// ============================================================
-//  СВОРАЧИВАНИЕ СЕКЦИЙ
-// ============================================================
+// ---------- Сворачивание ----------
 function loadUiState() {
     try {
         const s = localStorage.getItem('autoservice_ui');
@@ -149,12 +146,8 @@ function loadFromLocalCache() {
 
 function migrateCategoryName(cat) {
     const map = {
-        'Аренда': 'аренда',
-        'КУ': 'ку',
-        'Интернет': 'интернет',
-        'Маркетинг': 'маркетинг',
-        'Оборудование': 'оборудование',
-        'Прочее': 'прочее'
+        'Аренда': 'аренда', 'КУ': 'ку', 'Интернет': 'интернет',
+        'Маркетинг': 'маркетинг', 'Оборудование': 'оборудование', 'Прочее': 'прочее'
     };
     return map[cat] || cat;
 }
@@ -186,9 +179,7 @@ function migrateData() {
         if (e.paid === undefined) e.paid = false;
         if (e.comment === undefined) e.comment = '';
         e.category = migrateCategoryName(e.category);
-        if (!e.date && e.period) {
-            e.date = e.period + '-01';
-        }
+        if (!e.date && e.period) e.date = e.period + '-01';
         return e;
     });
 }
@@ -1122,7 +1113,7 @@ function renderBizExpTotals() {
 }
 
 // ============================================================
-//  ЛОГИКА ЧИСТОЙ ПРИБЫЛИ
+//  ЛОГИКА ЧИСТОЙ ПРИБЫЛИ (обновлённая)
 // ============================================================
 
 function calcMonthlyTotals(targetDate) {
@@ -1130,12 +1121,10 @@ function calcMonthlyTotals(targetDate) {
     const m = targetDate.getMonth();
     const monthStart = new Date(y, m, 1, 0, 0, 0);
     const monthEnd = new Date(y, m + 1, 0, 23, 59, 59);
-    const nextMonthStart = new Date(y, m + 1, 1, 0, 0, 0);
-    const nextMonthEnd = new Date(y, m + 2, 0, 23, 59, 59);
 
     let profit = 0;
-    let plannedRecurringNext = 0;
-    let actualCurrent = 0;
+    let bizActual = 0;
+    let bizPlanned = 0;
     let count = 0;
     let done = 0, in_progress = 0, callback = 0, inspection = 0, processing = 0, refused = 0;
     let prepaySum = 0, orderExpSum = 0, costSum = 0;
@@ -1170,22 +1159,33 @@ function calcMonthlyTotals(targetDate) {
         if (!d) return;
         const cat = BIZ_CATEGORIES[e.category];
         const isRecurring = cat && cat.recurring;
+        const amt = e.amount || 0;
 
-        if (!e.paid && isRecurring && d >= nextMonthStart && d <= nextMonthEnd) {
-            plannedRecurringNext += e.amount || 0;
-        }
-        if (e.paid && d >= monthStart && d <= monthEnd) {
-            actualCurrent += e.amount || 0;
+        if (isRecurring) {
+            // Recurring: расход с датой в месяце X относится к X-1
+            const refMonth = new Date(d.getFullYear(), d.getMonth() - 1, 1);
+            if (refMonth.getFullYear() === y && refMonth.getMonth() === m) {
+                if (e.paid) bizActual += amt;
+                else bizPlanned += amt;
+            }
+        } else {
+            // Не recurring: учитывается в месяце даты платежа, только если оплачен
+            if (e.paid && d >= monthStart && d <= monthEnd) {
+                bizActual += amt;
+            }
         }
     });
 
-    const bizTotal = plannedRecurringNext + actualCurrent;
+    const bizTotal = bizActual + bizPlanned;
     const netProfit = profit - bizTotal;
 
     return {
         count, done, in_progress, callback, inspection, processing, refused,
         prepaySum, orderExpSum, costSum,
-        profit, plannedRecurringNext, actualCurrent, bizTotal, netProfit
+        profit,
+        actualCurrent: bizActual,
+        plannedRecurringNext: bizPlanned,
+        bizTotal, netProfit
     };
 }
 
@@ -1232,7 +1232,6 @@ function calcTotalTotals() {
     };
 }
 
-// Навигация по месяцам
 function prevMonth() {
     monthOffset--;
     renderTotals();
@@ -1293,8 +1292,8 @@ function renderTotals() {
     elMonth.innerHTML =
         box('Заказов за месяц', monthData.count) +
         box('Прибыль по заказам', monthData.profit.toFixed(0) + ' ₽', 'предоплата − расходы по заказам', monthData.profit >= 0 ? 'profit' : 'loss') +
-        box('Факт (текущий месяц)', monthData.actualCurrent.toFixed(0) + ' ₽', 'оплачено в этом месяце', monthData.actualCurrent > 0 ? 'loss' : '') +
-        box('План (след. месяц)', monthData.plannedRecurringNext.toFixed(0) + ' ₽', 'аренда/ку/интернет', monthData.plannedRecurringNext > 0 ? 'loss' : '') +
+        box('Факт (относится к месяцу)', monthData.actualCurrent.toFixed(0) + ' ₽', 'оплаченные расходы', monthData.actualCurrent > 0 ? 'loss' : '') +
+        box('План: аренда/ку/интернет', monthData.plannedRecurringNext.toFixed(0) + ' ₽', 'плановые recurring', monthData.plannedRecurringNext > 0 ? 'loss' : '') +
         box('Всего вычтено', monthData.bizTotal.toFixed(0) + ' ₽', 'факт + план', monthData.bizTotal > 0 ? 'loss' : '') +
         box('Чистая прибыль', monthData.netProfit.toFixed(0) + ' ₽', 'прибыль − вычтено', monthData.netProfit >= 0 ? 'profit' : 'loss') +
         box('Готовых', monthData.done, '', 'profit') +
@@ -1359,4 +1358,4 @@ window.addEventListener('error', function(ev) {
 });
 
 init();
-console.log('🔧 Автосервис Админ v13.0');
+console.log('🔧 Автосервис Админ v13.1');
