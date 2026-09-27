@@ -25,7 +25,28 @@
             margin-bottom: 16px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         }
-        .section h2 { font-size: 16px; margin-bottom: 12px; }
+        .section h2 {
+            font-size: 16px;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+            user-select: none;
+        }
+        .section.collapsed h2 { margin-bottom: 0; }
+        .section.collapsed .section-content { display: none; }
+        .collapse-arrow {
+            display: inline-block;
+            font-size: 12px;
+            color: #888;
+            transition: transform 0.2s;
+            width: 14px;
+            text-align: center;
+            flex-shrink: 0;
+        }
+        .section.collapsed .collapse-arrow { transform: rotate(-90deg); }
+
         input, textarea, select {
             width: 100%;
             padding: 10px;
@@ -151,6 +172,44 @@
         .total-box .total-sub { font-size: 11px; color: #888; margin-top: 2px; }
         .totals-header { font-size: 13px; font-weight: 600; margin: 12px 0 6px 0; color: #666; }
 
+        .month-nav {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            margin-bottom: 10px;
+            background: rgba(0,0,0,0.04);
+            border-radius: 8px;
+            padding: 6px 10px;
+        }
+        .month-nav button {
+            width: auto;
+            padding: 6px 12px;
+            font-size: 16px;
+            margin: 0;
+            background: var(--tg-theme-button-color, #2ea6ff);
+            color: #fff;
+            font-weight: 700;
+            min-width: 44px;
+        }
+        .month-nav button:disabled {
+            background: #ccc;
+            cursor: default;
+        }
+        .month-nav .month-label {
+            font-size: 14px;
+            font-weight: 700;
+            text-align: center;
+            flex: 1;
+        }
+        .month-nav .month-label .small {
+            display: block;
+            font-size: 11px;
+            color: #888;
+            font-weight: 400;
+            margin-top: 2px;
+        }
+
         .filters { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
         .filter-btn { width: auto; padding: 6px 12px; font-size: 12px; border-radius: 14px; margin: 0; background: #e0e0e0; color: #000; font-weight: 500; }
         .filter-btn.active { background: var(--tg-theme-button-color, #2ea6ff); color: #fff; }
@@ -180,153 +239,181 @@
 <body>
     <h1>🔧 Автосервис Админ</h1>
 
-    <div class="section">
-        <h2>👤 Клиенты</h2>
-        <input type="text" id="searchInput" placeholder="🔍 Поиск по ФИО, телефону, авто, VIN..." oninput="onSearchInput()" />
-        <input type="text" id="clientName" placeholder="ФИО клиента" />
-        <input type="tel" id="clientPhone" placeholder="Телефон" />
-        <textarea id="clientComment" placeholder="Комментарий (необязательно)" rows="2"></textarea>
-
-        <div class="sub-section">
-            <div class="sub-title">🚗 Автомобили клиента</div>
-            <input type="text" id="carModel" placeholder="Марка, модель (напр. Toyota Camry)" />
-            <input type="text" id="carPlate" placeholder="Гос. номер (необязательно)" />
-            <input type="text" id="carVin" placeholder="VIN (необязательно)" />
-            <input type="text" id="carPaintCode" placeholder="Код краски (необязательно)" />
-            <button class="btn-secondary" onclick="addCarToList()">➕ Добавить авто</button>
-            <div id="carsTempList"></div>
-        </div>
-
-        <button class="btn-primary" onclick="addClient()">Добавить клиента</button>
-        <div id="clientsList"><div class="empty">Нет клиентов</div></div>
-    </div>
-
-    <div class="section">
-        <h2>📋 Заказы</h2>
-
-        <div class="filters">
-            <button class="filter-btn active" data-status="all" onclick="setOrderFilter('all')">Все</button>
-            <button class="filter-btn" data-status="callback" onclick="setOrderFilter('callback')">📞 Перезвонить</button>
-            <button class="filter-btn" data-status="inspection" onclick="setOrderFilter('inspection')">🔍 Осмотр</button>
-            <button class="filter-btn" data-status="processing" onclick="setOrderFilter('processing')">📋 Обработка</button>
-            <button class="filter-btn" data-status="in_progress" onclick="setOrderFilter('in_progress')">🔧 В работе</button>
-            <button class="filter-btn" data-status="done" onclick="setOrderFilter('done')">✅ Готов</button>
-            <button class="filter-btn" data-status="refused" onclick="setOrderFilter('refused')">❌ Отказ</button>
-        </div>
-
-        <div class="sub-section">
-            <div class="sub-title">1. Выберите клиента:</div>
-            <div id="clientPicker" class="picker-list"><div class="empty">Сначала добавьте клиента</div></div>
-        </div>
-
-        <div class="sub-section" id="carPickerSection" style="display:none;">
-            <div class="sub-title">2. Выберите автомобиль:</div>
-            <div id="carPicker" class="picker-list"></div>
-        </div>
-
-        <div id="orderFormSection" style="display:none;">
-            <label>Вид работ:</label>
-            <select id="orderWorkType">
-                <option value="Слесарные работы">Слесарные работы</option>
-                <option value="Малярные работы">Малярные работы</option>
-                <option value="Кузовные работы">Кузовные работы</option>
-                <option value="Арматурные работы">Арматурные работы</option>
-            </select>
-
-            <label>Описание работ:</label>
-            <input type="text" id="orderWork" placeholder="Напр. Замена масла" />
-
-            <label>Статус:</label>
-            <select id="orderStatus">
-                <option value="callback">📞 Перезвонить</option>
-                <option value="inspection">🔍 Осмотр</option>
-                <option value="processing">📋 Обработка</option>
-                <option value="in_progress" selected>🔧 В работе</option>
-                <option value="done">✅ Готов</option>
-                <option value="refused">❌ Отказ</option>
-            </select>
-
-            <label>Стоимость работ (руб.):</label>
-            <input type="number" id="orderCost" placeholder="0" />
-
-            <label>Дата принятия в работу:</label>
-            <input type="date" id="orderAccepted" />
-
-            <label>Срок выполнения:</label>
-            <input type="date" id="orderDeadline" />
-
-            <label>Предоплата (руб.):</label>
-            <input type="number" id="orderPrepayment" placeholder="0" />
-
-            <label>Комментарий к заказу:</label>
-            <textarea id="orderComment" placeholder="Заметки, договорённости..." rows="2"></textarea>
+    <!-- === КЛИЕНТЫ === -->
+    <div class="section" id="section-clients">
+        <h2 onclick="toggleSection('clients')">
+            <span class="collapse-arrow" id="arrow-clients">▼</span> 👤 Клиенты
+        </h2>
+        <div class="section-content">
+            <input type="text" id="searchInput" placeholder="🔍 Поиск по ФИО, телефону, авто, VIN..." oninput="onSearchInput()" />
+            <input type="text" id="clientName" placeholder="ФИО клиента" />
+            <input type="tel" id="clientPhone" placeholder="Телефон" />
+            <textarea id="clientComment" placeholder="Комментарий (необязательно)" rows="2"></textarea>
 
             <div class="sub-section">
-                <div class="sub-title">💸 Расходы (необязательно)</div>
-                <input type="text" id="expenseDesc" placeholder="Напр. Масло Mobil 1" />
-                <input type="number" id="expenseAmount" placeholder="Сумма (руб.)" />
-                <button class="btn-secondary" onclick="addExpenseToList()">➕ Добавить расход</button>
-                <div id="expensesTempList"></div>
+                <div class="sub-title">🚗 Автомобили клиента</div>
+                <input type="text" id="carModel" placeholder="Марка, модель (напр. Toyota Camry)" />
+                <input type="text" id="carPlate" placeholder="Гос. номер (необязательно)" />
+                <input type="text" id="carVin" placeholder="VIN (необязательно)" />
+                <input type="text" id="carPaintCode" placeholder="Код краски (необязательно)" />
+                <button class="btn-secondary" onclick="addCarToList()">➕ Добавить авто</button>
+                <div id="carsTempList"></div>
             </div>
 
-            <button class="btn-primary" onclick="addOrder()">Добавить заказ</button>
-        </div>
-
-        <div id="ordersList"><div class="empty">Нет заказов</div></div>
-    </div>
-
-    <div class="section">
-        <h2>💼 Расходы бизнеса</h2>
-
-        <div class="sub-section">
-            <div class="sub-title">➕ Добавить расход</div>
-            <label>Категория:</label>
-            <select id="bizExpCategory" onchange="onBizExpCategoryChange()">
-                <option value="аренда">🏠 аренда</option>
-                <option value="ку">💡 ку</option>
-                <option value="интернет">🌐 интернет</option>
-                <option value="маркетинг">📣 маркетинг</option>
-                <option value="оборудование">🔧 оборудование</option>
-                <option value="прочее">📦 прочее</option>
-            </select>
-
-            <label>Сумма (руб.):</label>
-            <input type="number" id="bizExpAmount" placeholder="0" />
-
-            <label>Дата платежа:</label>
-            <input type="date" id="bizExpDate" />
-
-            <label>Комментарий:</label>
-            <input type="text" id="bizExpComment" placeholder="Необязательно" />
-
-            <button class="btn-primary" onclick="addBizExpense()">Добавить расход</button>
-        </div>
-
-        <div class="filters">
-            <button class="filter-btn active" data-expfilter="all" onclick="setBizExpFilter('all')">Все</button>
-            <button class="filter-btn" data-expfilter="planned" onclick="setBizExpFilter('planned')">📋 Планируемые</button>
-            <button class="filter-btn" data-expfilter="paid" onclick="setBizExpFilter('paid')">✅ Оплаченные</button>
-        </div>
-
-        <div id="bizExpList"><div class="empty">Нет расходов</div></div>
-
-        <div class="sub-section" style="margin-top:12px;">
-            <div class="sub-title">💰 Итоги по расходам бизнеса</div>
-            <div class="totals-grid" id="bizExpTotalsTotal"></div>
+            <button class="btn-primary" onclick="addClient()">Добавить клиента</button>
+            <div id="clientsList"><div class="empty">Нет клиентов</div></div>
         </div>
     </div>
 
-    <div class="section">
-        <h2>📊 Общие итоги</h2>
-        <div class="totals-header">За всё время</div>
-        <div class="totals-grid" id="totalsTotal"></div>
-        <div class="totals-header">За текущий месяц</div>
-        <div class="totals-grid" id="totalsMonth"></div>
+    <!-- === ЗАКАЗЫ === -->
+    <div class="section" id="section-orders">
+        <h2 onclick="toggleSection('orders')">
+            <span class="collapse-arrow" id="arrow-orders">▼</span> 📋 Заказы
+        </h2>
+        <div class="section-content">
+            <div class="filters">
+                <button class="filter-btn active" data-status="all" onclick="setOrderFilter('all')">Все</button>
+                <button class="filter-btn" data-status="callback" onclick="setOrderFilter('callback')">📞 Перезвонить</button>
+                <button class="filter-btn" data-status="inspection" onclick="setOrderFilter('inspection')">🔍 Осмотр</button>
+                <button class="filter-btn" data-status="processing" onclick="setOrderFilter('processing')">📋 Обработка</button>
+                <button class="filter-btn" data-status="in_progress" onclick="setOrderFilter('in_progress')">🔧 В работе</button>
+                <button class="filter-btn" data-status="done" onclick="setOrderFilter('done')">✅ Готов</button>
+                <button class="filter-btn" data-status="refused" onclick="setOrderFilter('refused')">❌ Отказ</button>
+            </div>
+
+            <div class="sub-section">
+                <div class="sub-title">1. Выберите клиента:</div>
+                <div id="clientPicker" class="picker-list"><div class="empty">Сначала добавьте клиента</div></div>
+            </div>
+
+            <div class="sub-section" id="carPickerSection" style="display:none;">
+                <div class="sub-title">2. Выберите автомобиль:</div>
+                <div id="carPicker" class="picker-list"></div>
+            </div>
+
+            <div id="orderFormSection" style="display:none;">
+                <label>Вид работ:</label>
+                <select id="orderWorkType">
+                    <option value="Слесарные работы">Слесарные работы</option>
+                    <option value="Малярные работы">Малярные работы</option>
+                    <option value="Кузовные работы">Кузовные работы</option>
+                    <option value="Арматурные работы">Арматурные работы</option>
+                </select>
+
+                <label>Описание работ:</label>
+                <input type="text" id="orderWork" placeholder="Напр. Замена масла" />
+
+                <label>Статус:</label>
+                <select id="orderStatus">
+                    <option value="callback">📞 Перезвонить</option>
+                    <option value="inspection">🔍 Осмотр</option>
+                    <option value="processing">📋 Обработка</option>
+                    <option value="in_progress" selected>🔧 В работе</option>
+                    <option value="done">✅ Готов</option>
+                    <option value="refused">❌ Отказ</option>
+                </select>
+
+                <label>Стоимость работ (руб.):</label>
+                <input type="number" id="orderCost" placeholder="0" />
+
+                <label>Дата принятия в работу:</label>
+                <input type="date" id="orderAccepted" />
+
+                <label>Срок выполнения:</label>
+                <input type="date" id="orderDeadline" />
+
+                <label>Предоплата (руб.):</label>
+                <input type="number" id="orderPrepayment" placeholder="0" />
+
+                <label>Комментарий к заказу:</label>
+                <textarea id="orderComment" placeholder="Заметки, договорённости..." rows="2"></textarea>
+
+                <div class="sub-section">
+                    <div class="sub-title">💸 Расходы (необязательно)</div>
+                    <input type="text" id="expenseDesc" placeholder="Напр. Масло Mobil 1" />
+                    <input type="number" id="expenseAmount" placeholder="Сумма (руб.)" />
+                    <button class="btn-secondary" onclick="addExpenseToList()">➕ Добавить расход</button>
+                    <div id="expensesTempList"></div>
+                </div>
+
+                <button class="btn-primary" onclick="addOrder()">Добавить заказ</button>
+            </div>
+
+            <div id="ordersList"><div class="empty">Нет заказов</div></div>
+        </div>
     </div>
 
-    <div class="section">
-        <h2>🗑 Опасная зона</h2>
-        <button class="btn-secondary" onclick="clearAll()">Очистить все данные</button>
+    <!-- === РАСХОДЫ БИЗНЕСА === -->
+    <div class="section" id="section-bizexp">
+        <h2 onclick="toggleSection('bizexp')">
+            <span class="collapse-arrow" id="arrow-bizexp">▼</span> 💼 Расходы бизнеса
+        </h2>
+        <div class="section-content">
+            <div class="sub-section">
+                <div class="sub-title">➕ Добавить расход</div>
+                <label>Категория:</label>
+                <select id="bizExpCategory" onchange="onBizExpCategoryChange()">
+                    <option value="аренда">🏠 аренда</option>
+                    <option value="ку">💡 ку</option>
+                    <option value="интернет">🌐 интернет</option>
+                    <option value="маркетинг">📣 маркетинг</option>
+                    <option value="оборудование">🔧 оборудование</option>
+                    <option value="прочее">📦 прочее</option>
+                </select>
+
+                <label>Сумма (руб.):</label>
+                <input type="number" id="bizExpAmount" placeholder="0" />
+
+                <label>Дата платежа:</label>
+                <input type="date" id="bizExpDate" />
+
+                <label>Комментарий:</label>
+                <input type="text" id="bizExpComment" placeholder="Необязательно" />
+
+                <button class="btn-primary" onclick="addBizExpense()">Добавить расход</button>
+            </div>
+
+            <div class="filters">
+                <button class="filter-btn active" data-expfilter="all" onclick="setBizExpFilter('all')">Все</button>
+                <button class="filter-btn" data-expfilter="planned" onclick="setBizExpFilter('planned')">📋 Планируемые</button>
+                <button class="filter-btn" data-expfilter="paid" onclick="setBizExpFilter('paid')">✅ Оплаченные</button>
+            </div>
+
+            <div id="bizExpList"><div class="empty">Нет расходов</div></div>
+
+            <div class="sub-section" style="margin-top:12px;">
+                <div class="sub-title">💰 Итоги по расходам бизнеса</div>
+                <div class="totals-grid" id="bizExpTotalsTotal"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- === ОБЩИЕ ИТОГИ === -->
+    <div class="section" id="section-totals">
+        <h2 onclick="toggleSection('totals')">
+            <span class="collapse-arrow" id="arrow-totals">▼</span> 📊 Общие итоги
+        </h2>
+        <div class="section-content">
+            <div class="totals-header">За всё время</div>
+            <div class="totals-grid" id="totalsTotal"></div>
+
+            <div class="month-nav">
+                <button onclick="prevMonth()" id="prevMonthBtn">◀</button>
+                <span class="month-label" id="monthLabel">Сентябрь 2026</span>
+                <button onclick="nextMonth()" id="nextMonthBtn">▶</button>
+            </div>
+            <div class="totals-grid" id="totalsMonth"></div>
+        </div>
+    </div>
+
+    <!-- === ОПАСНАЯ ЗОНА === -->
+    <div class="section" id="section-danger">
+        <h2 onclick="toggleSection('danger')">
+            <span class="collapse-arrow" id="arrow-danger">▼</span> 🗑 Опасная зона
+        </h2>
+        <div class="section-content">
+            <button class="btn-secondary" onclick="clearAll()">Очистить все данные</button>
+        </div>
     </div>
 
     <div class="status-bar">
