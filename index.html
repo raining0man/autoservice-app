@@ -133,6 +133,7 @@
         .badge.badge-planned { background: #fff3cd; color: #856404; }
         .badge.badge-paid { background: #d4edda; color: #155724; }
         .badge.badge-overdue-exp { background: #f8d7da; color: #721c24; }
+        .badge.period { background: #e2d5f1; color: #5a2d82; }
 
         .empty { text-align: center; color: #888; font-size: 14px; padding: 20px 0; }
 
@@ -160,7 +161,9 @@
         .filter-btn { width: auto; padding: 6px 12px; font-size: 12px; border-radius: 14px; margin: 0; background: #e0e0e0; color: #000; font-weight: 500; }
         .filter-btn.active { background: var(--tg-theme-button-color, #2ea6ff); color: #fff; }
 
-        /* Тост-уведомления (заменяют alert) */
+        .period-row { display: flex; gap: 6px; margin-bottom: 8px; }
+        .period-row select { margin-bottom: 0; }
+
         #app-toast {
             position: fixed;
             bottom: 90px;
@@ -298,7 +301,13 @@
             <label>Сумма (руб.):</label>
             <input type="number" id="bizExpAmount" placeholder="0" />
 
-            <label>Дата платежа:</label>
+            <label>Период (за какой месяц начислен):</label>
+            <div class="period-row">
+                <select id="bizExpPeriodMonth"></select>
+                <select id="bizExpPeriodYear"></select>
+            </div>
+
+            <label>Дата фактического платежа:</label>
             <input type="date" id="bizExpDate" />
 
             <label>Комментарий:</label>
