@@ -1,8 +1,10 @@
 // ============================================================
-// Автосервис Админ v13.1 — Firebase Sync
-// Логика расходов:
-// - аренда/ку/интернет: расход с датой в месяце X относится к X-1 (и оплачен, и плановый)
-// - маркетинг/оборудование/прочее: учитывается только оплаченный, по дате платежа
+// Автосервис Админ v13.3 — Firebase Sync
+// Логика:
+// - аренда / ку / интернет: расход с датой в месяце X относится к X-1
+//   (НЕЗАВИСИМО от того, оплачен он или нет)
+// - маркетинг / оборудование / прочее: учитывается только оплаченный,
+//   по дате платежа
 // ============================================================
 
 const firebaseConfig = {
@@ -65,6 +67,7 @@ const BIZ_CATEGORIES = {
 };
 
 const MONTH_NAMES = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+const MONTH_NAMES_GEN = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
 
 function genId(prefix) {
     return prefix + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -84,10 +87,8 @@ function toastOk(msg) { toast(msg, 'success'); }
 
 // ---------- Сворачивание ----------
 function loadUiState() {
-    try {
-        const s = localStorage.getItem('autoservice_ui');
-        return s ? JSON.parse(s) : {};
-    } catch (e) { return {}; }
+    try { const s = localStorage.getItem('autoservice_ui'); return s ? JSON.parse(s) : {}; }
+    catch (e) { return {}; }
 }
 function saveUiState(state) {
     try { localStorage.setItem('autoservice_ui', JSON.stringify(state)); } catch (e) {}
@@ -144,12 +145,21 @@ function loadFromLocalCache() {
     return false;
 }
 
-function migrateCategoryName(cat) {
-    const map = {
-        'Аренда': 'аренда', 'КУ': 'ку', 'Интернет': 'интернет',
-        'Маркетинг': 'маркетинг', 'Оборудование': 'оборудование', 'Прочее': 'прочее'
-    };
-    return map[cat] || cat;
+function normalizeCategory(cat) {
+    if (!cat) return 'прочее';
+    const raw = String(cat).toLowerCase().trim();
+    const c = raw.replace(/[\s\-_.]/g, '');
+
+    if (c === 'аренда' || c === 'arenda' || c === 'rent') return 'аренда';
+    if (c === 'ку' || c === 'жкх' || c === 'коммуналка' || c === 'коммунальные' ||
+        c === 'коммунальныеуслуги' || c === 'коммунал' || c === 'кх') return 'ку';
+    if (c === 'интернет' || c === 'internet' || c === 'связь' || c === 'инет' ||
+        c === 'провайдер') return 'интернет';
+    if (c === 'маркетинг' || c === 'marketing' || c === 'реклама' ||
+        c === 'рекламамаркетинг') return 'маркетинг';
+    if (c === 'оборудование' || c === 'equipment' || c === 'оснащение' ||
+        c === 'инструмент') return 'оборудование';
+    return 'прочее';
 }
 
 function migrateData() {
@@ -178,10 +188,30 @@ function migrateData() {
         if (!e.id) e.id = genId('bexp');
         if (e.paid === undefined) e.paid = false;
         if (e.comment === undefined) e.comment = '';
-        e.category = migrateCategoryName(e.category);
+        e.category = normalizeCategory(e.category);
         if (!e.date && e.period) e.date = e.period + '-01';
         return e;
     });
+}
+
+// Возвращает { year, month } — к какому месяцу относится расход
+function getRefMonth(e) {
+    const d = parseDate(e.date);
+    if (!d) return null;
+    const cat = BIZ_CATEGORIES[e.category];
+    const isRecurring = cat && cat.recurring;
+    if (isRecurring) {
+        return { year: new Date(d.getFullYear(), d.getMonth() - 1, 1).getFullYear(),
+                 month: new Date(d.getFullYear(), d.getMonth() - 1, 1).getMonth() };
+    } else {
+        return { year: d.getFullYear(), month: d.getMonth() };
+    }
+}
+
+function refMonthLabel(e) {
+    const r = getRefMonth(e);
+    if (!r) return '—';
+    return MONTH_NAMES[r.month] + ' ' + r.year;
 }
 
 async function saveToFirebase() {
@@ -922,7 +952,7 @@ function onBizExpCategoryChange() {
 
 function addBizExpense() {
     try {
-        const category = document.getElementById('bizExpCategory').value;
+        const category = normalizeCategory(document.getElementById('bizExpCategory').value);
         const amountStr = document.getElementById('bizExpAmount').value;
         const date = document.getElementById('bizExpDate').value;
         const comment = document.getElementById('bizExpComment').value.trim();
@@ -931,19 +961,21 @@ function addBizExpense() {
         if (!amount || amount <= 0) { toastErr('Введите сумму больше нуля'); return; }
         if (!date) { toastErr('Выберите дату платежа'); return; }
 
-        businessExpenses.push({
+        const newE = {
             id: genId('bexp'),
             category, amount, date, comment,
             paid: false,
             createdAt: new Date().toISOString()
-        });
+        };
+        businessExpenses.push(newE);
+        const refLabel = refMonthLabel(newE);
 
         document.getElementById('bizExpAmount').value = '';
         document.getElementById('bizExpComment').value = '';
         onBizExpCategoryChange();
         renderAll();
         saveToFirebase();
-        toastOk('Расход добавлен: ' + amount.toFixed(0) + ' ₽');
+        toastOk('Добавлено: ' + amount.toFixed(0) + ' ₽ → ' + refLabel);
     } catch (e) {
         console.error('Ошибка addBizExpense:', e);
         toastErr('Ошибка: ' + e.message);
@@ -962,9 +994,14 @@ function toggleBizExpensePaid(id) {
     const e = businessExpenses.find(x => x.id === id);
     if (!e) return;
     e.paid = !e.paid;
+    const refLabel = refMonthLabel(e);
     renderAll();
     saveToFirebase();
-    toastOk(e.paid ? 'Отмечено как оплачено' : 'Возвращено в план');
+    if (e.paid) {
+        toastOk('Оплачено. Относится к ' + refLabel);
+    } else {
+        toastOk('Возвращено в план. Относится к ' + refLabel);
+    }
 }
 
 function startEditBizExpense(id) {
@@ -980,7 +1017,7 @@ function cancelEditBizExpense() {
 function saveEditBizExpense() {
     const e = businessExpenses.find(x => x.id === editBizExpIdx);
     if (!e) { editBizExpIdx = null; renderBizExpenses(); return; }
-    const category = document.getElementById('editBizCat').value;
+    const category = normalizeCategory(document.getElementById('editBizCat').value);
     const amount = parseFloat(document.getElementById('editBizAmount').value) || 0;
     const date = document.getElementById('editBizDate').value;
     const comment = document.getElementById('editBizComment').value.trim();
@@ -993,7 +1030,7 @@ function saveEditBizExpense() {
     editBizExpIdx = null;
     renderAll();
     saveToFirebase();
-    toastOk('Сохранено');
+    toastOk('Сохранено. Относится к ' + refMonthLabel(e));
 }
 
 function setBizExpFilter(f) {
@@ -1033,6 +1070,9 @@ function renderBizExpenses() {
     container.innerHTML = list.map(e => {
         const info = BIZ_CATEGORIES[e.category] || { icon: '📦' };
         const isOverdue = isBizExpOverdue(e);
+        const refLabel = refMonthLabel(e);
+        const cat = BIZ_CATEGORIES[e.category];
+        const isRecurring = cat && cat.recurring;
 
         if (editBizExpIdx === e.id) {
             const catOptions = Object.keys(BIZ_CATEGORIES).map(k =>
@@ -1059,12 +1099,16 @@ function renderBizExpenses() {
             ? '<span class="badge badge-paid">✅ Оплачено</span>'
             : (isOverdue ? '<span class="badge badge-overdue-exp">⚠️ Просрочено</span>' : '<span class="badge badge-planned">📋 Планируется</span>');
 
+        const refLine = isRecurring
+            ? `<div class="order-row"><span class="label">📅 Относится к:</span><span><b>${refLabel}</b> <span style="color:#888;font-size:11px;">(recurring: месяц − 1)</span></span></div>`
+            : `<div class="order-row"><span class="label">📅 Относится к:</span><span><b>${refLabel}</b> <span style="color:#888;font-size:11px;">(по дате, только если оплачен)</span></span></div>`;
+
         return `
-        <div class="card" style="${e.paid ? 'opacity:0.75;' : ''}">
+        <div class="card" style="${e.paid ? 'opacity:0.85;' : ''}">
             <div class="card-header">
                 <div>
                     <strong>${info.icon} ${escapeHtml(e.category)}</strong>
-                    <small>${dateFmt}</small>
+                    <small>Платёж: ${dateFmt}</small>
                 </div>
                 <div class="card-actions">
                     <button class="btn-icon ${e.paid ? 'unpaid' : 'paid'}" onclick="toggleBizExpensePaid('${e.id}')"
@@ -1077,6 +1121,7 @@ function renderBizExpenses() {
                 <span class="label">Сумма:</span>
                 <span><b>${e.amount.toFixed(0)} ₽</b></span>
             </div>
+            ${refLine}
             <div class="order-row">
                 <span class="label">Статус:</span>
                 <span>${paidBadge}</span>
@@ -1113,7 +1158,7 @@ function renderBizExpTotals() {
 }
 
 // ============================================================
-//  ЛОГИКА ЧИСТОЙ ПРИБЫЛИ (обновлённая)
+//  ЛОГИКА ЧИСТОЙ ПРИБЫЛИ
 // ============================================================
 
 function calcMonthlyTotals(targetDate) {
@@ -1125,6 +1170,8 @@ function calcMonthlyTotals(targetDate) {
     let profit = 0;
     let bizActual = 0;
     let bizPlanned = 0;
+    let actualCount = 0;
+    let plannedCount = 0;
     let count = 0;
     let done = 0, in_progress = 0, callback = 0, inspection = 0, processing = 0, refused = 0;
     let prepaySum = 0, orderExpSum = 0, costSum = 0;
@@ -1154,6 +1201,8 @@ function calcMonthlyTotals(targetDate) {
         }
     });
 
+    const monthLog = [];
+
     businessExpenses.forEach(e => {
         const d = parseDate(e.date);
         if (!d) return;
@@ -1161,23 +1210,58 @@ function calcMonthlyTotals(targetDate) {
         const isRecurring = cat && cat.recurring;
         const amt = e.amount || 0;
 
+        // Определяем, к какому месяцу относится
+        let ref;
         if (isRecurring) {
-            // Recurring: расход с датой в месяце X относится к X-1
-            const refMonth = new Date(d.getFullYear(), d.getMonth() - 1, 1);
-            if (refMonth.getFullYear() === y && refMonth.getMonth() === m) {
-                if (e.paid) bizActual += amt;
-                else bizPlanned += amt;
-            }
+            // Месяц − 1
+            const refDate = new Date(d.getFullYear(), d.getMonth() - 1, 1);
+            ref = { year: refDate.getFullYear(), month: refDate.getMonth() };
         } else {
-            // Не recurring: учитывается в месяце даты платежа, только если оплачен
-            if (e.paid && d >= monthStart && d <= monthEnd) {
-                bizActual += amt;
-            }
+            // Месяц самой даты, но только если оплачен
+            ref = { year: d.getFullYear(), month: d.getMonth() };
+        }
+
+        // Совпадает ли с целевым месяцем?
+        if (ref.year !== y || ref.month !== m) return;
+
+        // Не recurring и не оплачено — пропускаем (не учитывается)
+        if (!isRecurring && !e.paid) return;
+
+        if (e.paid) {
+            bizActual += amt;
+            actualCount++;
+            monthLog.push({ cat: e.category, amount: amt, type: 'ФАКТ', date: e.date, paid: true, recurring: isRecurring });
+        } else {
+            bizPlanned += amt;
+            plannedCount++;
+            monthLog.push({ cat: e.category, amount: amt, type: 'ПЛАН', date: e.date, paid: false, recurring: isRecurring });
         }
     });
 
     const bizTotal = bizActual + bizPlanned;
     const netProfit = profit - bizTotal;
+
+    // Лог в консоль для отладки
+    const monthName = MONTH_NAMES[m] + ' ' + y;
+    console.log('============================================');
+    console.log('  ИТОГИ ЗА ' + monthName);
+    console.log('============================================');
+    console.log('Заказов: ' + count + ', прибыль по заказам: ' + profit.toFixed(0) + ' ₽');
+    console.log('Расходы, отнесённые к месяцу:');
+    if (monthLog.length === 0) {
+        console.log('  (нет расходов, относящихся к этому месяцу)');
+    } else {
+        monthLog.forEach(l => {
+            console.log('  [' + l.type + '] ' + l.cat + ': ' + l.amount.toFixed(0) + ' ₽' +
+                ' (дата ' + l.date + ', recurring=' + l.recurring + ', paid=' + l.paid + ')');
+        });
+    }
+    console.log('--------------------------------------------');
+    console.log('Факт:  ' + bizActual.toFixed(0) + ' ₽ (' + actualCount + ' записей)');
+    console.log('План:  ' + bizPlanned.toFixed(0) + ' ₽ (' + plannedCount + ' записей)');
+    console.log('Всего вычтено: ' + bizTotal.toFixed(0) + ' ₽');
+    console.log('ЧИСТАЯ ПРИБЫЛЬ: ' + netProfit.toFixed(0) + ' ₽');
+    console.log('============================================');
 
     return {
         count, done, in_progress, callback, inspection, processing, refused,
@@ -1185,6 +1269,7 @@ function calcMonthlyTotals(targetDate) {
         profit,
         actualCurrent: bizActual,
         plannedRecurringNext: bizPlanned,
+        actualCount, plannedCount,
         bizTotal, netProfit
     };
 }
@@ -1292,8 +1377,8 @@ function renderTotals() {
     elMonth.innerHTML =
         box('Заказов за месяц', monthData.count) +
         box('Прибыль по заказам', monthData.profit.toFixed(0) + ' ₽', 'предоплата − расходы по заказам', monthData.profit >= 0 ? 'profit' : 'loss') +
-        box('Факт (относится к месяцу)', monthData.actualCurrent.toFixed(0) + ' ₽', 'оплаченные расходы', monthData.actualCurrent > 0 ? 'loss' : '') +
-        box('План: аренда/ку/интернет', monthData.plannedRecurringNext.toFixed(0) + ' ₽', 'плановые recurring', monthData.plannedRecurringNext > 0 ? 'loss' : '') +
+        box('Факт (относится к месяцу)', monthData.actualCurrent.toFixed(0) + ' ₽', monthData.actualCount + ' записей', monthData.actualCurrent > 0 ? 'loss' : '') +
+        box('План: аренда/ку/интернет', monthData.plannedRecurringNext.toFixed(0) + ' ₽', monthData.plannedCount + ' записей', monthData.plannedRecurringNext > 0 ? 'loss' : '') +
         box('Всего вычтено', monthData.bizTotal.toFixed(0) + ' ₽', 'факт + план', monthData.bizTotal > 0 ? 'loss' : '') +
         box('Чистая прибыль', monthData.netProfit.toFixed(0) + ' ₽', 'прибыль − вычтено', monthData.netProfit >= 0 ? 'profit' : 'loss') +
         box('Готовых', monthData.done, '', 'profit') +
@@ -1358,4 +1443,4 @@ window.addEventListener('error', function(ev) {
 });
 
 init();
-console.log('🔧 Автосервис Админ v13.1');
+console.log('🔧 Автосервис Админ v13.3');
