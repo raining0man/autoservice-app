@@ -1,10 +1,6 @@
 // ============================================================
-// Автосервис Админ v13.3 — Firebase Sync
-// Логика:
-// - аренда / ку / интернет: расход с датой в месяце X относится к X-1
-//   (НЕЗАВИСИМО от того, оплачен он или нет)
-// - маркетинг / оборудование / прочее: учитывается только оплаченный,
-//   по дате платежа
+// Автосервис Админ v13.4 — Firebase Sync
+// Клиенты отображаются в обратном порядке: новые сверху
 // ============================================================
 
 const firebaseConfig = {
@@ -67,7 +63,6 @@ const BIZ_CATEGORIES = {
 };
 
 const MONTH_NAMES = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
-const MONTH_NAMES_GEN = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
 
 function genId(prefix) {
     return prefix + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -85,7 +80,7 @@ function toast(message, type) {
 function toastErr(msg) { toast(msg, 'error'); }
 function toastOk(msg) { toast(msg, 'success'); }
 
-// ---------- Сворачивание ----------
+// ---------- Сворачивание секций ----------
 function loadUiState() {
     try { const s = localStorage.getItem('autoservice_ui'); return s ? JSON.parse(s) : {}; }
     catch (e) { return {}; }
@@ -169,6 +164,7 @@ function migrateData() {
         }
         if (!c.id) c.id = genId('client');
         if (c.comment === undefined) c.comment = '';
+        if (!c.createdAt) c.createdAt = new Date().toISOString();
         c.cars = (c.cars || []).map(car => {
             if (!car.id) car.id = genId('car');
             if (car.vin === undefined) car.vin = '';
@@ -194,18 +190,16 @@ function migrateData() {
     });
 }
 
-// Возвращает { year, month } — к какому месяцу относится расход
 function getRefMonth(e) {
     const d = parseDate(e.date);
     if (!d) return null;
     const cat = BIZ_CATEGORIES[e.category];
     const isRecurring = cat && cat.recurring;
     if (isRecurring) {
-        return { year: new Date(d.getFullYear(), d.getMonth() - 1, 1).getFullYear(),
-                 month: new Date(d.getFullYear(), d.getMonth() - 1, 1).getMonth() };
-    } else {
-        return { year: d.getFullYear(), month: d.getMonth() };
+        const ref = new Date(d.getFullYear(), d.getMonth() - 1, 1);
+        return { year: ref.getFullYear(), month: ref.getMonth() };
     }
+    return { year: d.getFullYear(), month: d.getMonth() };
 }
 
 function refMonthLabel(e) {
@@ -369,7 +363,12 @@ function addClient() {
     const comment = document.getElementById('clientComment').value.trim();
     if (!name) { toastErr('Введите ФИО клиента'); return; }
     if (tempCars.length === 0) { toastErr('Добавьте хотя бы один автомобиль'); return; }
-    clients.push({ id: genId('client'), name, phone, comment, cars: [...tempCars] });
+    clients.push({
+        id: genId('client'),
+        name, phone, comment,
+        cars: [...tempCars],
+        createdAt: new Date().toISOString()
+    });
     tempCars = [];
     document.getElementById('clientName').value = '';
     document.getElementById('clientPhone').value = '';
@@ -466,12 +465,17 @@ function onSearchInput() {
     renderClients();
 }
 
+// ---------- РЕНДЕР КЛИЕНТОВ (новые сверху) ----------
 function renderClients() {
     const container = document.getElementById('clientsList');
     if (!container) return;
     if (clients.length === 0) { container.innerHTML = '<div class="empty">Нет клиентов</div>'; return; }
 
-    const filtered = clients.map((c, i) => ({ ...c, _idx: i })).filter(c => clientMatchesSearch(c, searchQuery));
+    // Формируем массив с индексами, фильтруем, потом реверсируем — новые сверху
+    const filtered = clients.map((c, i) => ({ ...c, _idx: i }))
+        .filter(c => clientMatchesSearch(c, searchQuery))
+        .reverse();
+
     if (filtered.length === 0) { container.innerHTML = '<div class="empty">Ничего не найдено</div>'; return; }
 
     container.innerHTML = filtered.map(c => {
@@ -550,6 +554,7 @@ function renderClients() {
     }).join('');
 }
 
+// ---------- ПИКЕР КЛИЕНТОВ (новые сверху) ----------
 function renderClientPicker() {
     const el = document.getElementById('clientPicker');
     if (!el) return;
@@ -558,8 +563,10 @@ function renderClientPicker() {
         selectedClientIdx = null;
         return;
     }
-    el.innerHTML = clients.map((c, i) => `
-        <button class="picker-btn ${selectedClientIdx === i ? 'active' : ''}" onclick="selectClient(${i})">
+    // Формируем массив с индексами и реверсируем — новые сверху
+    const reversed = clients.map((c, i) => ({ ...c, _idx: i })).reverse();
+    el.innerHTML = reversed.map(c => `
+        <button class="picker-btn ${selectedClientIdx === c._idx ? 'active' : ''}" onclick="selectClient(${c._idx})">
             ${escapeHtml(c.name)}
             <small>${escapeHtml(c.phone || 'без телефона')} · авто: ${(c.cars || []).length}</small>
         </button>
@@ -1201,8 +1208,6 @@ function calcMonthlyTotals(targetDate) {
         }
     });
 
-    const monthLog = [];
-
     businessExpenses.forEach(e => {
         const d = parseDate(e.date);
         if (!d) return;
@@ -1210,58 +1215,28 @@ function calcMonthlyTotals(targetDate) {
         const isRecurring = cat && cat.recurring;
         const amt = e.amount || 0;
 
-        // Определяем, к какому месяцу относится
         let ref;
         if (isRecurring) {
-            // Месяц − 1
             const refDate = new Date(d.getFullYear(), d.getMonth() - 1, 1);
             ref = { year: refDate.getFullYear(), month: refDate.getMonth() };
         } else {
-            // Месяц самой даты, но только если оплачен
             ref = { year: d.getFullYear(), month: d.getMonth() };
         }
 
-        // Совпадает ли с целевым месяцем?
         if (ref.year !== y || ref.month !== m) return;
-
-        // Не recurring и не оплачено — пропускаем (не учитывается)
         if (!isRecurring && !e.paid) return;
 
         if (e.paid) {
             bizActual += amt;
             actualCount++;
-            monthLog.push({ cat: e.category, amount: amt, type: 'ФАКТ', date: e.date, paid: true, recurring: isRecurring });
         } else {
             bizPlanned += amt;
             plannedCount++;
-            monthLog.push({ cat: e.category, amount: amt, type: 'ПЛАН', date: e.date, paid: false, recurring: isRecurring });
         }
     });
 
     const bizTotal = bizActual + bizPlanned;
     const netProfit = profit - bizTotal;
-
-    // Лог в консоль для отладки
-    const monthName = MONTH_NAMES[m] + ' ' + y;
-    console.log('============================================');
-    console.log('  ИТОГИ ЗА ' + monthName);
-    console.log('============================================');
-    console.log('Заказов: ' + count + ', прибыль по заказам: ' + profit.toFixed(0) + ' ₽');
-    console.log('Расходы, отнесённые к месяцу:');
-    if (monthLog.length === 0) {
-        console.log('  (нет расходов, относящихся к этому месяцу)');
-    } else {
-        monthLog.forEach(l => {
-            console.log('  [' + l.type + '] ' + l.cat + ': ' + l.amount.toFixed(0) + ' ₽' +
-                ' (дата ' + l.date + ', recurring=' + l.recurring + ', paid=' + l.paid + ')');
-        });
-    }
-    console.log('--------------------------------------------');
-    console.log('Факт:  ' + bizActual.toFixed(0) + ' ₽ (' + actualCount + ' записей)');
-    console.log('План:  ' + bizPlanned.toFixed(0) + ' ₽ (' + plannedCount + ' записей)');
-    console.log('Всего вычтено: ' + bizTotal.toFixed(0) + ' ₽');
-    console.log('ЧИСТАЯ ПРИБЫЛЬ: ' + netProfit.toFixed(0) + ' ₽');
-    console.log('============================================');
 
     return {
         count, done, in_progress, callback, inspection, processing, refused,
@@ -1443,4 +1418,4 @@ window.addEventListener('error', function(ev) {
 });
 
 init();
-console.log('🔧 Автосервис Админ v13.3');
+console.log('🔧 Автосервис Админ v13.4');
