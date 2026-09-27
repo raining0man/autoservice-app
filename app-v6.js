@@ -1,6 +1,5 @@
 // ============================================================
-// Автосервис Админ v8.0 — Firebase Sync + расширенные функции
-// - Виды работ, статусы, комментарии, даты, поиск, итоги
+// Автосервис Админ v9.1 — Firebase Sync (со статусом "Обработка")
 // ============================================================
 
 const firebaseConfig = {
@@ -20,7 +19,6 @@ const auth = firebase.auth();
 const tg = window.Telegram?.WebApp;
 if (tg) { tg.ready(); tg.expand(); }
 
-// ---------- Данные ----------
 let clients = [];
 let orders = [];
 let dataVersion = 0;
@@ -38,19 +36,27 @@ let isSaving = false;
 let firebaseConnected = false;
 
 let searchQuery = '';
-let orderFilter = 'all'; // 'all' | 'in_progress' | 'done'
+let orderFilter = 'all';
 
 const WORK_TYPES = ['Слесарные работы', 'Малярные работы', 'Кузовные работы', 'Арматурные работы'];
+const STATUS_LABELS = {
+    'callback':    { label: '📞 Перезвонить', cls: 'status-callback' },
+    'inspection':  { label: '🔍 Осмотр',      cls: 'status-inspection' },
+    'processing':  { label: '📋 Обработка',   cls: 'status-processing' },
+    'in_progress': { label: '🔧 В работе',    cls: 'status-in_progress' },
+    'done':        { label: '✅ Готов',       cls: 'status-done' },
+    'refused':     { label: '❌ Отказ',       cls: 'status-refused' }
+};
 
-// ---------- Статус ----------
+function genId(prefix) {
+    return prefix + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
 function setStatus(text, state) {
     const el = document.getElementById('statusText');
     const dot = document.getElementById('syncDot');
     if (el) el.textContent = text;
-    if (dot) {
-        dot.className = 'sync-dot';
-        if (state) dot.classList.add(state);
-    }
+    if (dot) { dot.className = 'sync-dot'; if (state) dot.classList.add(state); }
 }
 
 function updateVersionDisplay() {
@@ -58,14 +64,12 @@ function updateVersionDisplay() {
     if (el) el.textContent = 'v' + dataVersion;
 }
 
-// ---------- Локальный кэш ----------
 function saveToLocalCache() {
     try {
         localStorage.setItem('autoservice_cache', JSON.stringify({
-            clients, orders, version: dataVersion,
-            updatedAt: new Date().toISOString()
+            clients, orders, version: dataVersion, updatedAt: new Date().toISOString()
         }));
-    } catch (e) { console.warn('Ошибка локального кэша:', e); }
+    } catch (e) { console.warn(e); }
 }
 
 function loadFromLocalCache() {
@@ -76,24 +80,25 @@ function loadFromLocalCache() {
             clients = parsed.clients || [];
             orders = parsed.orders || [];
             dataVersion = parsed.version || 0;
-            console.log('📦 Локальный кэш:', clients.length, 'клиентов,', orders.length, 'заказов');
             return true;
         }
-    } catch (e) { console.warn('Ошибка чтения кэша:', e); }
+    } catch (e) { console.warn(e); }
     return false;
 }
 
-// ---------- Миграция старых данных ----------
 function migrateData() {
     clients = clients.map(c => {
         if (c.car !== undefined && !c.cars) {
-            return {
-                name: c.name, phone: c.phone,
-                cars: c.car ? [{ model: c.car, plate: '' }] : [],
-                comment: ''
-            };
+            c = { name: c.name, phone: c.phone, cars: c.car ? [{ model: c.car, plate: '' }] : [], comment: '' };
         }
+        if (!c.id) c.id = genId('client');
         if (c.comment === undefined) c.comment = '';
+        c.cars = (c.cars || []).map(car => {
+            if (!car.id) car.id = genId('car');
+            if (car.vin === undefined) car.vin = '';
+            if (car.paintCode === undefined) car.paintCode = '';
+            return car;
+        });
         return c;
     });
     orders = orders.map(o => {
@@ -105,39 +110,31 @@ function migrateData() {
     });
 }
 
-// ---------- Сохранение ----------
 async function saveToFirebase() {
     saveToLocalCache();
-    if (!isReady) {
-        setStatus('Ожидание подключения...', '');
-        return;
-    }
+    if (!isReady) { setStatus('Ожидание подключения...', ''); return; }
     isSaving = true;
     dataVersion++;
     setStatus('Сохранение...', '');
     try {
         await db.collection('data').doc('main').set({
-            clients: clients,
-            orders: orders,
-            version: dataVersion,
+            clients, orders, version: dataVersion,
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         });
         updateVersionDisplay();
         setStatus('Сохранено в облако', 'ok');
     } catch (e) {
-        console.error('Ошибка сохранения:', e);
+        console.error(e);
         setStatus('Локально (нет связи)', '');
     }
     isSaving = false;
 }
 
-// ---------- Подписка ----------
 function subscribeToFirebase() {
     let firstSnapshot = false;
     db.collection('data').doc('main').onSnapshot((doc) => {
         if (isSaving) return;
         firebaseConnected = true;
-
         if (doc.exists) {
             const data = doc.data();
             const newVersion = data.version || 0;
@@ -170,14 +167,13 @@ function subscribeToFirebase() {
             }
         }
     }, (error) => {
-        console.error('❌ onSnapshot error:', error);
+        console.error('onSnapshot:', error);
         firebaseConnected = false;
         setStatus('Нет связи с облаком', 'error');
         isReady = true;
     });
 }
 
-// ---------- Старт ----------
 async function init() {
     if (loadFromLocalCache()) {
         migrateData();
@@ -187,35 +183,31 @@ async function init() {
     } else {
         setStatus('Подключение...', '');
     }
-
-    const timeoutId = setTimeout(() => {
+    setTimeout(() => {
         if (!firebaseConnected) {
             setStatus('Нет связи с облаком. Работаем локально', 'error');
             isReady = true;
         }
     }, 15000);
-
     try {
         const userCred = await auth.signInAnonymously();
-        console.log('✅ Авторизован. UID:', userCred.user.uid);
-        setStatus('Авторизован. Загрузка данных...', '');
+        console.log('✅ UID:', userCred.user.uid);
         subscribeToFirebase();
     } catch (e) {
-        clearTimeout(timeoutId);
-        console.error('❌ Ошибка авторизации:', e.code, e.message);
+        console.error(e);
         setStatus('Ошибка авторизации: ' + e.code, 'error');
         isReady = true;
     }
 }
 
-// ---------- Временные списки ----------
 function addCarToList() {
     const model = document.getElementById('carModel').value.trim();
     const plate = document.getElementById('carPlate').value.trim();
+    const vin = document.getElementById('carVin').value.trim();
+    const paintCode = document.getElementById('carPaintCode').value.trim();
     if (!model) { alert('Введите марку и модель авто'); return; }
-    tempCars.push({ model, plate });
-    document.getElementById('carModel').value = '';
-    document.getElementById('carPlate').value = '';
+    tempCars.push({ id: genId('car'), model, plate, vin, paintCode });
+    ['carModel', 'carPlate', 'carVin', 'carPaintCode'].forEach(id => document.getElementById(id).value = '');
     renderTempCars();
 }
 
@@ -225,12 +217,15 @@ function renderTempCars() {
     const el = document.getElementById('carsTempList');
     if (!el) return;
     if (tempCars.length === 0) { el.innerHTML = ''; return; }
-    el.innerHTML = tempCars.map((c, i) => `
-        <div class="temp-item">
-            <span>🚗 ${escapeHtml(c.model)}${c.plate ? ' (' + escapeHtml(c.plate) + ')' : ''}</span>
+    el.innerHTML = tempCars.map((c, i) => {
+        let extra = '';
+        if (c.vin) extra += ' · VIN: ' + escapeHtml(c.vin);
+        if (c.paintCode) extra += ' · Код краски: ' + escapeHtml(c.paintCode);
+        return `<div class="temp-item">
+            <span>🚗 ${escapeHtml(c.model)}${c.plate ? ' (' + escapeHtml(c.plate) + ')' : ''}${extra}</span>
             <button onclick="removeCarFromList(${i})">✕</button>
-        </div>
-    `).join('');
+        </div>`;
+    }).join('');
 }
 
 function addExpenseToList() {
@@ -256,24 +251,17 @@ function renderTempExpenses() {
             <span>${escapeHtml(e.desc)} — ${e.amount.toFixed(0)} ₽</span>
             <button onclick="removeExpenseFromList(${i})">✕</button>
         </div>
-    `).join('') + `
-        <div style="font-size:12px; color:#888; text-align:right; padding:4px 8px 0 0;">
-            Итого: <b>${total.toFixed(0)} ₽</b>
-        </div>
-    `;
+    `).join('') + `<div style="font-size:12px; color:#888; text-align:right; padding:4px 8px 0 0;">Итого: <b>${total.toFixed(0)} ₽</b></div>`;
 }
 
-// ---------- Клиенты ----------
 function addClient() {
     const name = document.getElementById('clientName').value.trim();
     const phone = document.getElementById('clientPhone').value.trim();
     const comment = document.getElementById('clientComment').value.trim();
     if (!name) { alert('Введите ФИО клиента'); return; }
     if (tempCars.length === 0) { alert('Добавьте хотя бы один автомобиль'); return; }
-
-    clients.push({ name, phone, cars: [...tempCars], comment });
+    clients.push({ id: genId('client'), name, phone, comment, cars: [...tempCars] });
     tempCars = [];
-
     document.getElementById('clientName').value = '';
     document.getElementById('clientPhone').value = '';
     document.getElementById('clientComment').value = '';
@@ -299,23 +287,19 @@ function startEditClient(i) {
     renderClients();
 }
 
-function cancelEditClient() {
-    editClientIdx = null;
-    editClientCars = [];
-    renderClients();
-}
+function cancelEditClient() { editClientIdx = null; editClientCars = []; renderClients(); }
 
 function updateEditCar(idx, field, value) {
     if (editClientCars[idx]) editClientCars[idx][field] = value;
 }
 
 function addEditCar() {
-    const modelEl = document.getElementById('editCarModel_' + editClientIdx);
-    const plateEl = document.getElementById('editCarPlate_' + editClientIdx);
-    const model = modelEl.value.trim();
-    const plate = plateEl.value.trim();
+    const model = document.getElementById('editCarModel_' + editClientIdx).value.trim();
+    const plate = document.getElementById('editCarPlate_' + editClientIdx).value.trim();
+    const vin = document.getElementById('editCarVin_' + editClientIdx).value.trim();
+    const paintCode = document.getElementById('editCarPaintCode_' + editClientIdx).value.trim();
     if (!model) { alert('Введите марку и модель'); return; }
-    editClientCars.push({ model, plate });
+    editClientCars.push({ id: genId('car'), model, plate, vin, paintCode });
     renderClients();
 }
 
@@ -326,26 +310,21 @@ function removeEditCar(idx) {
 }
 
 function saveEditClient() {
-    const nameEl = document.getElementById('editName_' + editClientIdx);
-    const phoneEl = document.getElementById('editPhone_' + editClientIdx);
-    const commentEl = document.getElementById('editComment_' + editClientIdx);
-    const name = nameEl.value.trim();
-    const phone = phoneEl.value.trim();
-    const comment = commentEl ? commentEl.value.trim() : '';
+    const name = document.getElementById('editName_' + editClientIdx).value.trim();
+    const phone = document.getElementById('editPhone_' + editClientIdx).value.trim();
+    const comment = document.getElementById('editComment_' + editClientIdx).value.trim();
     if (!name) { alert('Введите ФИО'); return; }
     if (editClientCars.length === 0) { alert('Добавьте хотя бы одно авто'); return; }
     for (const car of editClientCars) {
-        if (!car.model || !car.model.trim()) {
-            alert('У каждого авто должна быть марка и модель');
-            return;
-        }
+        if (!car.model || !car.model.trim()) { alert('У каждого авто должна быть марка и модель'); return; }
+        if (!car.id) car.id = genId('car');
     }
     clients[editClientIdx].name = name;
     clients[editClientIdx].phone = phone;
     clients[editClientIdx].comment = comment;
     clients[editClientIdx].cars = editClientCars.map(c => ({
-        model: c.model.trim(),
-        plate: (c.plate || '').trim()
+        id: c.id, model: c.model.trim(), plate: (c.plate || '').trim(),
+        vin: (c.vin || '').trim(), paintCode: (c.paintCode || '').trim()
     }));
     editClientIdx = null;
     editClientCars = [];
@@ -355,7 +334,6 @@ function saveEditClient() {
     saveToFirebase();
 }
 
-// ---------- Рендер клиентов ----------
 function clientMatchesSearch(c, q) {
     if (!q) return true;
     q = q.toLowerCase();
@@ -364,7 +342,9 @@ function clientMatchesSearch(c, q) {
     if ((c.comment || '').toLowerCase().includes(q)) return true;
     if ((c.cars || []).some(car =>
         (car.model || '').toLowerCase().includes(q) ||
-        (car.plate || '').toLowerCase().includes(q)
+        (car.plate || '').toLowerCase().includes(q) ||
+        (car.vin || '').toLowerCase().includes(q) ||
+        (car.paintCode || '').toLowerCase().includes(q)
     )) return true;
     return false;
 }
@@ -378,19 +358,10 @@ function onSearchInput() {
 function renderClients() {
     const container = document.getElementById('clientsList');
     if (!container) return;
+    if (clients.length === 0) { container.innerHTML = '<div class="empty">Нет клиентов</div>'; return; }
 
-    if (clients.length === 0) {
-        container.innerHTML = '<div class="empty">Нет клиентов</div>';
-        return;
-    }
-
-    const filtered = clients.map((c, i) => ({ ...c, _idx: i }))
-        .filter(c => clientMatchesSearch(c, searchQuery));
-
-    if (filtered.length === 0) {
-        container.innerHTML = '<div class="empty">Ничего не найдено</div>';
-        return;
-    }
+    const filtered = clients.map((c, i) => ({ ...c, _idx: i })).filter(c => clientMatchesSearch(c, searchQuery));
+    if (filtered.length === 0) { container.innerHTML = '<div class="empty">Ничего не найдено</div>'; return; }
 
     container.innerHTML = filtered.map(c => {
         const i = c._idx;
@@ -404,18 +375,18 @@ function renderClients() {
                 carsHtml += '<input type="text" value="' + escapeAttr(car.model || '') + '" oninput="updateEditCar(' + idx + ', \'model\', this.value)" />';
                 carsHtml += '<label>Гос. номер:</label>';
                 carsHtml += '<input type="text" value="' + escapeAttr(car.plate || '') + '" oninput="updateEditCar(' + idx + ', \'plate\', this.value)" />';
+                carsHtml += '<label>VIN:</label>';
+                carsHtml += '<input type="text" value="' + escapeAttr(car.vin || '') + '" oninput="updateEditCar(' + idx + ', \'vin\', this.value)" />';
+                carsHtml += '<label>Код краски:</label>';
+                carsHtml += '<input type="text" value="' + escapeAttr(car.paintCode || '') + '" oninput="updateEditCar(' + idx + ', \'paintCode\', this.value)" />';
                 carsHtml += '<button class="btn-secondary" style="background:#dc3545; color:#fff; margin-top:4px;" onclick="removeEditCar(' + idx + ')">🗑 Удалить это авто</button>';
                 carsHtml += '</div>';
             }
-            if (editClientCars.length === 0) {
-                carsHtml = '<div class="empty" style="padding:8px 0;">Авто пока нет</div>';
-            }
+            if (editClientCars.length === 0) carsHtml = '<div class="empty" style="padding:8px 0;">Авто пока нет</div>';
 
             return `
             <div class="card" style="border-color:#ffc107;">
-                <div class="card-header">
-                    <strong>✏️ Редактирование клиента</strong>
-                </div>
+                <div class="card-header"><strong>✏️ Редактирование клиента</strong></div>
                 <label>ФИО:</label>
                 <input type="text" id="editName_${i}" value="${escapeAttr(c.name)}" />
                 <label>Телефон:</label>
@@ -429,20 +400,25 @@ function renderClients() {
                     <div style="margin-top:12px; padding-top:12px; border-top:1px dashed rgba(0,0,0,0.15);">
                         <div class="sub-title">➕ Добавить новое авто</div>
                         <input type="text" id="editCarModel_${i}" placeholder="Марка, модель" />
-                        <input type="text" id="editCarPlate_${i}" placeholder="Гос. номер (необязательно)" />
+                        <input type="text" id="editCarPlate_${i}" placeholder="Гос. номер" />
+                        <input type="text" id="editCarVin_${i}" placeholder="VIN" />
+                        <input type="text" id="editCarPaintCode_${i}" placeholder="Код краски" />
                         <button class="btn-secondary" onclick="addEditCar()">➕ Добавить</button>
                     </div>
                 </div>
 
                 <button class="btn-success" onclick="saveEditClient()">✓ Сохранить всё</button>
                 <button class="btn-secondary" onclick="cancelEditClient()">Отмена</button>
-            </div>
-            `;
+            </div>`;
         }
 
         let carsList = '';
         (c.cars || []).forEach(car => {
             carsList += '<div class="car-line"><span class="car-info">🚗 ' + escapeHtml(car.model) + (car.plate ? ' · ' + escapeHtml(car.plate) : '') + '</span></div>';
+            const extras = [];
+            if (car.vin) extras.push('VIN: ' + escapeHtml(car.vin));
+            if (car.paintCode) extras.push('Краска: ' + escapeHtml(car.paintCode));
+            if (extras.length) carsList += '<div class="car-extra">' + extras.join(' · ') + '</div>';
         });
 
         return `
@@ -459,12 +435,10 @@ function renderClients() {
             </div>
             <div>${carsList}</div>
             ${c.comment ? `<div class="order-comment">💬 ${escapeHtml(c.comment)}</div>` : ''}
-        </div>
-        `;
+        </div>`;
     }).join('');
 }
 
-// ---------- Пикер клиентов ----------
 function renderClientPicker() {
     const el = document.getElementById('clientPicker');
     if (!el) return;
@@ -489,17 +463,13 @@ function selectClient(idx) {
     updateOrderFormVisibility();
 }
 
-// ---------- Пикер авто ----------
 function renderCarPicker() {
     const section = document.getElementById('carPickerSection');
     const el = document.getElementById('carPicker');
     if (!section || !el) return;
-
     if (selectedClientIdx === null) { section.style.display = 'none'; return; }
-
     const client = clients[selectedClientIdx];
     const cars = client.cars || [];
-
     if (cars.length === 0) {
         section.style.display = 'block';
         el.innerHTML = '<div class="empty">У клиента нет авто</div>';
@@ -514,11 +484,7 @@ function renderCarPicker() {
     `).join('');
 }
 
-function selectCar(idx) {
-    selectedCarIdx = idx;
-    renderCarPicker();
-    updateOrderFormVisibility();
-}
+function selectCar(idx) { selectedCarIdx = idx; renderCarPicker(); updateOrderFormVisibility(); }
 
 function updateOrderFormVisibility() {
     const form = document.getElementById('orderFormSection');
@@ -526,62 +492,50 @@ function updateOrderFormVisibility() {
     const show = (selectedClientIdx !== null && selectedCarIdx !== null);
     form.style.display = show ? 'block' : 'none';
     if (show && !document.getElementById('orderAccepted').value) {
-        const today = new Date().toISOString().split('T')[0];
-        document.getElementById('orderAccepted').value = today;
+        document.getElementById('orderAccepted').value = new Date().toISOString().split('T')[0];
     }
 }
 
-// ---------- Заказы ----------
 function addOrder() {
     if (selectedClientIdx === null) { alert('Выберите клиента'); return; }
     if (selectedCarIdx === null) { alert('Выберите автомобиль'); return; }
 
     const workType = document.getElementById('orderWorkType').value;
     const work = document.getElementById('orderWork').value.trim();
+    const status = document.getElementById('orderStatus').value;
     const cost = parseFloat(document.getElementById('orderCost').value) || 0;
     const acceptedAt = document.getElementById('orderAccepted').value;
     const deadline = document.getElementById('orderDeadline').value;
     const prepayment = parseFloat(document.getElementById('orderPrepayment').value) || 0;
     const comment = document.getElementById('orderComment').value.trim();
-
     if (!work) { alert('Введите описание работ'); return; }
 
     const client = clients[selectedClientIdx];
     const car = client.cars[selectedCarIdx];
 
     orders.push({
+        id: genId('order'),
+        clientId: client.id,
         clientName: client.name,
         clientPhone: client.phone,
+        carId: car.id,
         carModel: car.model,
         carPlate: car.plate,
-        workType: workType,
-        work: work,
-        status: 'in_progress',
-        cost: cost,
-        acceptedAt: acceptedAt,
-        deadline: deadline,
-        prepayment: prepayment,
-        comment: comment,
+        workType, work, status, cost, acceptedAt, deadline, prepayment, comment,
         expenses: [...tempExpenses],
         date: new Date().toLocaleDateString('ru-RU'),
         createdAt: new Date().toISOString()
     });
 
     tempExpenses = [];
-    document.getElementById('orderWork').value = '';
-    document.getElementById('orderCost').value = '';
-    document.getElementById('orderAccepted').value = '';
-    document.getElementById('orderDeadline').value = '';
-    document.getElementById('orderPrepayment').value = '';
-    document.getElementById('orderComment').value = '';
+    ['orderWork', 'orderCost', 'orderAccepted', 'orderDeadline', 'orderPrepayment', 'orderComment'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('orderStatus').value = 'in_progress';
     renderTempExpenses();
-
     selectedClientIdx = null;
     selectedCarIdx = null;
     renderClientPicker();
     renderCarPicker();
     updateOrderFormVisibility();
-
     renderAll();
     saveToFirebase();
 }
@@ -601,11 +555,7 @@ function startEditOrder(i) {
     renderOrders();
 }
 
-function cancelEditOrder() {
-    editOrderIdx = null;
-    editOrderExpenses = [];
-    renderOrders();
-}
+function cancelEditOrder() { editOrderIdx = null; editOrderExpenses = []; renderOrders(); }
 
 function saveEditOrder() {
     const o = orders[editOrderIdx];
@@ -618,18 +568,11 @@ function saveEditOrder() {
     const deadline = document.getElementById('editDeadline_' + i).value;
     const prepayment = parseFloat(document.getElementById('editPrepayment_' + i).value) || 0;
     const comment = document.getElementById('editComment_' + i).value.trim();
-
     if (!work) { alert('Введите описание работ'); return; }
 
-    o.workType = workType;
-    o.work = work;
-    o.status = status;
-    o.cost = cost;
-    o.acceptedAt = acceptedAt;
-    o.deadline = deadline;
-    o.prepayment = prepayment;
-    o.comment = comment;
-    o.expenses = [...editOrderExpenses];
+    o.workType = workType; o.work = work; o.status = status; o.cost = cost;
+    o.acceptedAt = acceptedAt; o.deadline = deadline; o.prepayment = prepayment;
+    o.comment = comment; o.expenses = [...editOrderExpenses];
 
     editOrderIdx = null;
     editOrderExpenses = [];
@@ -638,20 +581,15 @@ function saveEditOrder() {
 }
 
 function addEditOrderExpense() {
-    const descEl = document.getElementById('editExpDesc_' + editOrderIdx);
-    const amountEl = document.getElementById('editExpAmount_' + editOrderIdx);
-    const desc = descEl.value.trim();
-    const amount = parseFloat(amountEl.value) || 0;
+    const desc = document.getElementById('editExpDesc_' + editOrderIdx).value.trim();
+    const amount = parseFloat(document.getElementById('editExpAmount_' + editOrderIdx).value) || 0;
     if (!desc) { alert('Введите описание расхода'); return; }
     if (amount <= 0) { alert('Введите сумму больше нуля'); return; }
     editOrderExpenses.push({ desc, amount });
     renderOrders();
 }
 
-function removeEditOrderExpense(idx) {
-    editOrderExpenses.splice(idx, 1);
-    renderOrders();
-}
+function removeEditOrderExpense(idx) { editOrderExpenses.splice(idx, 1); renderOrders(); }
 
 function setOrderFilter(f) {
     orderFilter = f;
@@ -661,25 +599,21 @@ function setOrderFilter(f) {
     renderOrders();
 }
 
-// ---------- Дедлайн ----------
-function parseDate(s) {
-    if (!s) return null;
-    const d = new Date(s + 'T00:00:00');
-    return isNaN(d.getTime()) ? null : d;
-}
+function parseDate(s) { if (!s) return null; const d = new Date(s + 'T00:00:00'); return isNaN(d.getTime()) ? null : d; }
 
 function getDeadlineInfo(deadline, status) {
     if (status === 'done') return { text: 'выполнен', cls: 'status-done' };
+    if (status === 'refused') return { text: 'отказ', cls: 'status-refused' };
     if (!deadline) return { text: 'без срока', cls: '' };
     const today = new Date(); today.setHours(0,0,0,0);
     const dl = parseDate(deadline);
     if (!dl) return { text: 'без срока', cls: '' };
-    const diff = Math.round((dl - today) / (1000 * 60 * 60 * 24));
-    const formatted = dl.toLocaleDateString('ru-RU');
-    if (diff < 0)  return { text: 'просрочен на ' + Math.abs(diff) + ' дн. (' + formatted + ')', cls: 'overdue' };
-    if (diff === 0) return { text: 'сегодня (' + formatted + ')',  cls: 'today' };
-    if (diff <= 3)  return { text: 'через ' + diff + ' дн. (' + formatted + ')', cls: 'today' };
-    return { text: formatted + ' (через ' + diff + ' дн.)', cls: 'ok' };
+    const diff = Math.round((dl - today) / 86400000);
+    const f = dl.toLocaleDateString('ru-RU');
+    if (diff < 0) return { text: 'просрочен на ' + Math.abs(diff) + ' дн. (' + f + ')', cls: 'overdue' };
+    if (diff === 0) return { text: 'сегодня (' + f + ')', cls: 'today' };
+    if (diff <= 3) return { text: 'через ' + diff + ' дн. (' + f + ')', cls: 'today' };
+    return { text: f + ' (через ' + diff + ' дн.)', cls: 'ok' };
 }
 
 function formatAccepted(dateStr) {
@@ -689,7 +623,35 @@ function formatAccepted(dateStr) {
     return d.toLocaleDateString('ru-RU');
 }
 
-// ---------- Рендер заказов ----------
+function formatElapsed(dateStr) {
+    if (!dateStr) return '';
+    const d = parseDate(dateStr);
+    if (!d) return '';
+    const diffMs = Date.now() - d.getTime();
+    if (diffMs < 0) return '';
+    const mins = Math.floor(diffMs / 60000);
+    const hours = Math.floor(diffMs / 3600000);
+    const days = Math.floor(diffMs / 86400000);
+    if (days >= 2) return '(' + days + ' дн. назад)';
+    if (days === 1) return '(1 день назад)';
+    if (hours >= 1) return '(' + hours + ' ч. назад)';
+    if (mins >= 1) return '(' + mins + ' мин. назад)';
+    return '(только что)';
+}
+
+function getCarDisplay(o) {
+    if (o.carId) {
+        for (const c of clients) {
+            for (const car of (c.cars || [])) {
+                if (car.id === o.carId) {
+                    return { model: car.model, plate: car.plate, vin: car.vin || '', paintCode: car.paintCode || '' };
+                }
+            }
+        }
+    }
+    return { model: o.carModel, plate: o.carPlate, vin: '', paintCode: '' };
+}
+
 function renderOrders() {
     const container = document.getElementById('ordersList');
     if (!container) return;
@@ -706,6 +668,7 @@ function renderOrders() {
 
     container.innerHTML = visible.map(o => {
         const i = o._idx;
+        const car = getCarDisplay(o);
 
         if (editOrderIdx === i) {
             const expensesTotal = editOrderExpenses.reduce((s, e) => s + e.amount, 0);
@@ -713,21 +676,18 @@ function renderOrders() {
             editOrderExpenses.forEach((e, idx) => {
                 expensesHtml += '<div class="temp-item"><span>' + escapeHtml(e.desc) + ' — ' + e.amount.toFixed(0) + ' ₽</span><button onclick="removeEditOrderExpense(' + idx + ')">✕</button></div>';
             });
-            if (editOrderExpenses.length === 0) {
-                expensesHtml = '<div class="empty" style="padding:6px 0; font-size:12px;">Расходов нет</div>';
-            }
+            if (editOrderExpenses.length === 0) expensesHtml = '<div class="empty" style="padding:6px 0; font-size:12px;">Расходов нет</div>';
 
-            let typeOptions = WORK_TYPES.map(t =>
-                `<option value="${t}" ${o.workType === t ? 'selected' : ''}>${t}</option>`
+            const typeOptions = WORK_TYPES.map(t => `<option value="${t}" ${o.workType === t ? 'selected' : ''}>${t}</option>`).join('');
+            const statusOptions = Object.entries(STATUS_LABELS).map(([k, v]) =>
+                `<option value="${k}" ${o.status === k ? 'selected' : ''}>${v.label}</option>`
             ).join('');
 
             return `
             <div class="card" style="border-color:#ffc107;">
-                <div class="card-header">
-                    <strong>✏️ Редактирование заказа</strong>
-                </div>
+                <div class="card-header"><strong>✏️ Редактирование заказа</strong></div>
                 <small style="color:#888; font-size:12px; display:block; margin-bottom:8px;">
-                    👤 ${escapeHtml(o.clientName)} · 🚗 ${escapeHtml(o.carModel)}${o.carPlate ? ' (' + escapeHtml(o.carPlate) + ')' : ''}
+                    👤 ${escapeHtml(o.clientName)} · 🚗 ${escapeHtml(car.model)}${car.plate ? ' (' + escapeHtml(car.plate) + ')' : ''}
                 </small>
 
                 <label>Вид работ:</label>
@@ -737,10 +697,7 @@ function renderOrders() {
                 <input type="text" id="editWork_${i}" value="${escapeAttr(o.work)}" />
 
                 <label>Статус:</label>
-                <select id="editStatus_${i}">
-                    <option value="in_progress" ${o.status === 'in_progress' ? 'selected' : ''}>В работе</option>
-                    <option value="done" ${o.status === 'done' ? 'selected' : ''}>Готов</option>
-                </select>
+                <select id="editStatus_${i}">${statusOptions}</select>
 
                 <label>Стоимость работ (руб.):</label>
                 <input type="number" id="editCost_${i}" value="${o.cost || 0}" />
@@ -760,9 +717,7 @@ function renderOrders() {
                 <div class="sub-section">
                     <div class="sub-title">💸 Расходы</div>
                     ${expensesHtml}
-                    <div style="font-size:12px; color:#888; text-align:right; padding:2px 8px 6px 0;">
-                        Итого: <b>${expensesTotal.toFixed(0)} ₽</b>
-                    </div>
+                    <div style="font-size:12px; color:#888; text-align:right; padding:2px 8px 6px 0;">Итого: <b>${expensesTotal.toFixed(0)} ₽</b></div>
                     <input type="text" id="editExpDesc_${i}" placeholder="Новый расход" />
                     <input type="number" id="editExpAmount_${i}" placeholder="Сумма (руб.)" />
                     <button class="btn-secondary" onclick="addEditOrderExpense()">➕ Добавить расход</button>
@@ -770,15 +725,19 @@ function renderOrders() {
 
                 <button class="btn-success" onclick="saveEditOrder()">✓ Сохранить</button>
                 <button class="btn-secondary" onclick="cancelEditOrder()">Отмена</button>
-            </div>
-            `;
+            </div>`;
         }
 
         const expensesTotal = (o.expenses || []).reduce((s, e) => s + e.amount, 0);
-        const profit = (o.cost || 0) - expensesTotal;
+        const prepayment = o.prepayment || 0;
+        const profit = prepayment - expensesTotal;
         const dl = getDeadlineInfo(o.deadline, o.status);
-        const statusLabel = o.status === 'done' ? '✅ Готов' : '🔧 В работе';
-        const statusCls = o.status === 'done' ? 'status-done' : 'status-in_progress';
+        const st = STATUS_LABELS[o.status] || STATUS_LABELS['in_progress'];
+        const elapsed = formatElapsed(o.acceptedAt);
+
+        let carExtras = '';
+        if (car.vin) carExtras += ' · VIN: ' + escapeHtml(car.vin);
+        if (car.paintCode) carExtras += ' · Краска: ' + escapeHtml(car.paintCode);
 
         let expensesBlock = '';
         if (o.expenses && o.expenses.length > 0) {
@@ -786,9 +745,7 @@ function renderOrders() {
             o.expenses.forEach(e => {
                 expLines += '<div class="exp-item"><span>' + escapeHtml(e.desc) + '</span><span>' + e.amount.toFixed(0) + ' ₽</span></div>';
             });
-            expensesBlock = '<div class="order-expenses">' +
-                '<div style="font-size:11px; color:#888; margin-bottom:4px;">Расходы:</div>' +
-                expLines +
+            expensesBlock = '<div class="order-expenses"><div style="font-size:11px; color:#888; margin-bottom:4px;">Расходы:</div>' + expLines +
                 '<div class="exp-item" style="border-top:1px solid rgba(0,0,0,0.08); margin-top:4px; padding-top:4px; font-weight:600;">' +
                 '<span>Итого расходов:</span><span>' + expensesTotal.toFixed(0) + ' ₽</span></div></div>';
         }
@@ -798,7 +755,7 @@ function renderOrders() {
             <div class="card-header">
                 <div>
                     <strong>${escapeHtml(o.work)}</strong>
-                    <small>👤 ${escapeHtml(o.clientName)} · 🚗 ${escapeHtml(o.carModel)}${o.carPlate ? ' (' + escapeHtml(o.carPlate) + ')' : ''}</small>
+                    <small>👤 ${escapeHtml(o.clientName)} · 🚗 ${escapeHtml(car.model)}${car.plate ? ' (' + escapeHtml(car.plate) + ')' : ''}${carExtras}</small>
                 </div>
                 <div class="card-actions">
                     <button class="btn-icon edit" onclick="startEditOrder(${i})">✏️</button>
@@ -808,7 +765,7 @@ function renderOrders() {
 
             <div class="order-row">
                 <span class="label">Статус:</span>
-                <span><span class="badge ${statusCls}">${statusLabel}</span></span>
+                <span><span class="badge ${st.cls}">${st.label}</span></span>
             </div>
             <div class="order-row">
                 <span class="label">Вид работ:</span>
@@ -816,7 +773,7 @@ function renderOrders() {
             </div>
             <div class="order-row">
                 <span class="label">Принят в работу:</span>
-                <span>${formatAccepted(o.acceptedAt)}</span>
+                <span>${formatAccepted(o.acceptedAt)} <span class="order-elapsed">${elapsed}</span></span>
             </div>
             <div class="order-row">
                 <span class="label">Срок:</span>
@@ -828,58 +785,72 @@ function renderOrders() {
             </div>
             <div class="order-row">
                 <span class="label">Предоплата:</span>
-                <span>${(o.prepayment || 0).toFixed(0)} ₽</span>
+                <span>${prepayment.toFixed(0)} ₽</span>
             </div>
             <div class="order-row">
                 <span class="label">К доплате:</span>
-                <span>${((o.cost || 0) - (o.prepayment || 0)).toFixed(0)} ₽</span>
+                <span>${((o.cost || 0) - prepayment).toFixed(0)} ₽</span>
             </div>
 
             ${expensesBlock}
-
             ${o.comment ? `<div class="order-comment">💬 ${escapeHtml(o.comment)}</div>` : ''}
 
             <div class="order-total">
                 Прибыль: <span class="${profit >= 0 ? 'profit' : 'loss'}">${profit.toFixed(0)} ₽</span>
+                <span style="font-size:11px; color:#888; font-weight:400;"> (предоплата − расходы)</span>
             </div>
-        </div>
-        `;
+        </div>`;
     }).join('');
 }
 
-// ---------- Итоги ----------
 function calcTotals() {
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    let total = { count: 0, cost: 0, expense: 0, profit: 0 };
-    let month = { count: 0, cost: 0, expense: 0, profit: 0 };
+    function empty() {
+        return { count: 0, cost: 0, prepay: 0, expense: 0, profit: 0, done: 0, in_progress: 0, callback: 0, inspection: 0, processing: 0, refused: 0 };
+    }
+    let total = empty(), month = empty();
 
     orders.forEach(o => {
         const exp = (o.expenses || []).reduce((s, e) => s + e.amount, 0);
+        const prepay = o.prepayment || 0;
         const cost = o.cost || 0;
-        const profit = cost - exp;
+        const profit = prepay - exp;
+        const st = o.status || 'in_progress';
 
         total.count++;
         total.cost += cost;
+        total.prepay += prepay;
         total.expense += exp;
         total.profit += profit;
+        if (st === 'done') total.done++;
+        else if (st === 'in_progress') total.in_progress++;
+        else if (st === 'callback') total.callback++;
+        else if (st === 'inspection') total.inspection++;
+        else if (st === 'processing') total.processing++;
+        else if (st === 'refused') total.refused++;
 
         let created = null;
         if (o.createdAt) created = new Date(o.createdAt);
         else if (o.date) {
-            const parts = o.date.split('.');
-            if (parts.length === 3) created = new Date(parts[2], parts[1] - 1, parts[0]);
+            const p = o.date.split('.');
+            if (p.length === 3) created = new Date(p[2], p[1] - 1, p[0]);
         }
-
         if (created && created >= monthStart) {
             month.count++;
             month.cost += cost;
+            month.prepay += prepay;
             month.expense += exp;
             month.profit += profit;
+            if (st === 'done') month.done++;
+            else if (st === 'in_progress') month.in_progress++;
+            else if (st === 'callback') month.callback++;
+            else if (st === 'inspection') month.inspection++;
+            else if (st === 'processing') month.processing++;
+            else if (st === 'refused') month.refused++;
         }
     });
-
     return { total, month };
 }
 
@@ -890,27 +861,27 @@ function renderTotals() {
     if (!elTotal || !elMonth) return;
 
     function box(title, value, sub, cls) {
-        return `<div class="total-box">
-            <div class="total-title">${title}</div>
-            <div class="total-value ${cls || ''}">${value}</div>
-            ${sub ? `<div class="total-sub">${sub}</div>` : ''}
-        </div>`;
+        return `<div class="total-box"><div class="total-title">${title}</div><div class="total-value ${cls || ''}">${value}</div>${sub ? `<div class="total-sub">${sub}</div>` : ''}</div>`;
     }
 
-    elTotal.innerHTML =
-        box('Заказов', t.total.count) +
-        box('Прибыль', t.total.profit.toFixed(0) + ' ₽', '', t.total.profit >= 0 ? 'profit' : 'loss') +
-        box('Работ на сумму', t.total.cost.toFixed(0) + ' ₽') +
-        box('Расходов', t.total.expense.toFixed(0) + ' ₽');
+    function makeGrid(s) {
+        return box('Всего заказов', s.count) +
+               box('Прибыль', s.profit.toFixed(0) + ' ₽', 'предоплата − расходы', s.profit >= 0 ? 'profit' : 'loss') +
+               box('Готовых', s.done, '', 'profit') +
+               box('В работе', s.in_progress) +
+               box('Перезвонить', s.callback) +
+               box('Осмотр', s.inspection) +
+               box('Обработка', s.processing) +
+               box('Отказ', s.refused) +
+               box('Предоплаты', s.prepay.toFixed(0) + ' ₽') +
+               box('Расходы', s.expense.toFixed(0) + ' ₽') +
+               box('Сумма работ', s.cost.toFixed(0) + ' ₽');
+    }
 
-    elMonth.innerHTML =
-        box('Заказов', t.month.count) +
-        box('Прибыль', t.month.profit.toFixed(0) + ' ₽', '', t.month.profit >= 0 ? 'profit' : 'loss') +
-        box('Работ на сумму', t.month.cost.toFixed(0) + ' ₽') +
-        box('Расходов', t.month.expense.toFixed(0) + ' ₽');
+    elTotal.innerHTML = makeGrid(t.total);
+    elMonth.innerHTML = makeGrid(t.month);
 }
 
-// ---------- Очистка ----------
 function clearAll() {
     if (!confirm('Удалить ВСЕ данные? Это действие необратимо!')) return;
     clients = []; orders = []; tempCars = []; tempExpenses = [];
@@ -921,7 +892,6 @@ function clearAll() {
     saveToFirebase();
 }
 
-// ---------- Вспомогательные ----------
 function escapeHtml(text) {
     if (text === undefined || text === null) return '';
     const div = document.createElement('div');
@@ -935,11 +905,7 @@ function escapeAttr(text) {
     const QUOT = String.fromCharCode(34);
     const LT = String.fromCharCode(60);
     const GT = String.fromCharCode(62);
-    return String(text)
-        .split(AMP).join(AMP + 'amp;')
-        .split(QUOT).join(AMP + 'quot;')
-        .split(LT).join(AMP + 'lt;')
-        .split(GT).join(AMP + 'gt;');
+    return String(text).split(AMP).join(AMP + 'amp;').split(QUOT).join(AMP + 'quot;').split(LT).join(AMP + 'lt;').split(GT).join(AMP + 'gt;');
 }
 
 function renderAll() {
@@ -954,6 +920,5 @@ function renderAll() {
     renderTempExpenses();
 }
 
-// ---------- Старт ----------
 init();
-console.log('🔧 Автосервис Админ v8.0 — расширенная версия');
+console.log('🔧 Автосервис Админ v9.1 (со статусом Обработка)');
