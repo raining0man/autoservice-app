@@ -96,6 +96,8 @@
         .btn-icon { width: auto; padding: 6px 8px; font-size: 14px; border-radius: 6px; margin: 0; background: #e0e0e0; color: #000; }
         .btn-icon.delete { background: #dc3545; color: #fff; }
         .btn-icon.edit { background: #ffc107; color: #000; }
+        .btn-icon.paid { background: #28a745; color: #fff; }
+        .btn-icon.unpaid { background: #6c757d; color: #fff; }
 
         .car-line { font-size: 12px; color: #666; padding: 2px 0; display: flex; justify-content: space-between; align-items: center; gap: 6px; }
         .car-line .car-info { flex: 1; }
@@ -123,6 +125,14 @@
         .badge.status-done { background: #d4edda; color: #155724; }
         .badge.status-refused { background: #f8d7da; color: #721c24; }
         .badge.type { background: #e2e3e5; color: #41464b; }
+        .badge.cat-arenda { background: #cfe2ff; color: #084298; }
+        .badge.cat-ku { background: #fff3cd; color: #856404; }
+        .badge.cat-equip { background: #e2e3e5; color: #41464b; }
+        .badge.cat-internet { background: #d4edda; color: #155724; }
+        .badge.cat-other { background: #e2d5f1; color: #5a2d82; }
+        .badge.badge-planned { background: #fff3cd; color: #856404; }
+        .badge.badge-paid { background: #d4edda; color: #155724; }
+        .badge.badge-overdue-exp { background: #f8d7da; color: #721c24; }
 
         .empty { text-align: center; color: #888; font-size: 14px; padding: 20px 0; }
 
@@ -180,12 +190,12 @@
 
         <div class="filters">
             <button class="filter-btn active" data-status="all" onclick="setOrderFilter('all')">Все</button>
-            <button class="filter-btn" data-status="callback" onclick="setOrderFilter('callback')">📞</button>
-            <button class="filter-btn" data-status="inspection" onclick="setOrderFilter('inspection')">🔍</button>
-            <button class="filter-btn" data-status="processing" onclick="setOrderFilter('processing')">📋</button>
-            <button class="filter-btn" data-status="in_progress" onclick="setOrderFilter('in_progress')">🔧</button>
-            <button class="filter-btn" data-status="done" onclick="setOrderFilter('done')">✅</button>
-            <button class="filter-btn" data-status="refused" onclick="setOrderFilter('refused')">❌</button>
+            <button class="filter-btn" data-status="callback" onclick="setOrderFilter('callback')">📞 Перезвонить</button>
+            <button class="filter-btn" data-status="inspection" onclick="setOrderFilter('inspection')">🔍 Осмотр</button>
+            <button class="filter-btn" data-status="processing" onclick="setOrderFilter('processing')">📋 Обработка</button>
+            <button class="filter-btn" data-status="in_progress" onclick="setOrderFilter('in_progress')">🔧 В работе</button>
+            <button class="filter-btn" data-status="done" onclick="setOrderFilter('done')">✅ Готов</button>
+            <button class="filter-btn" data-status="refused" onclick="setOrderFilter('refused')">❌ Отказ</button>
         </div>
 
         <div class="sub-section">
@@ -250,7 +260,47 @@
     </div>
 
     <div class="section">
-        <h2>📊 Итоги</h2>
+        <h2>💼 Расходы бизнеса</h2>
+
+        <div class="sub-section">
+            <div class="sub-title">➕ Добавить расход</div>
+            <label>Категория:</label>
+            <select id="bizExpCategory" onchange="onBizExpCategoryChange()">
+                <option value="Аренда">🏠 Аренда (5-го числа, 176 800 ₽)</option>
+                <option value="КУ">💡 КУ (15-го числа)</option>
+                <option value="Оборудование">🔧 Оборудование</option>
+                <option value="Интернет">🌐 Интернет</option>
+                <option value="Прочее">📦 Прочее</option>
+            </select>
+
+            <label>Сумма (руб.):</label>
+            <input type="number" id="bizExpAmount" placeholder="0" />
+
+            <label>Дата платежа:</label>
+            <input type="date" id="bizExpDate" />
+
+            <label>Комментарий:</label>
+            <input type="text" id="bizExpComment" placeholder="Необязательно" />
+
+            <button class="btn-primary" onclick="addBizExpense()">Добавить расход</button>
+        </div>
+
+        <div class="filters">
+            <button class="filter-btn active" data-expfilter="all" onclick="setBizExpFilter('all')">Все</button>
+            <button class="filter-btn" data-expfilter="planned" onclick="setBizExpFilter('planned')">📋 Планируемые</button>
+            <button class="filter-btn" data-expfilter="paid" onclick="setBizExpFilter('paid')">✅ Оплаченные</button>
+        </div>
+
+        <div id="bizExpList"><div class="empty">Нет расходов</div></div>
+
+        <div class="sub-section" style="margin-top:12px;">
+            <div class="sub-title">💰 Итоги по расходам бизнеса</div>
+            <div class="totals-grid" id="bizExpTotalsTotal"></div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>📊 Общие итоги</h2>
         <div class="totals-header">За всё время</div>
         <div class="totals-grid" id="totalsTotal"></div>
         <div class="totals-header">За текущий месяц</div>
