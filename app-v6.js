@@ -1,5 +1,6 @@
 // ============================================================
-// Автосервис Админ v9.1 — Firebase Sync (со статусом "Обработка")
+// Автосервис Админ v10.0 — Firebase Sync
+// Добавлен раздел "Расходы бизнеса" (планируемые / фактические)
 // ============================================================
 
 const firebaseConfig = {
@@ -21,6 +22,7 @@ if (tg) { tg.ready(); tg.expand(); }
 
 let clients = [];
 let orders = [];
+let businessExpenses = [];
 let dataVersion = 0;
 let tempCars = [];
 let tempExpenses = [];
@@ -30,6 +32,7 @@ let editClientIdx = null;
 let editClientCars = [];
 let editOrderIdx = null;
 let editOrderExpenses = [];
+let editBizExpIdx = null;
 
 let isReady = false;
 let isSaving = false;
@@ -37,6 +40,7 @@ let firebaseConnected = false;
 
 let searchQuery = '';
 let orderFilter = 'all';
+let bizExpFilter = 'all';
 
 const WORK_TYPES = ['Слесарные работы', 'Малярные работы', 'Кузовные работы', 'Арматурные работы'];
 const STATUS_LABELS = {
@@ -48,10 +52,19 @@ const STATUS_LABELS = {
     'refused':     { label: '❌ Отказ',       cls: 'status-refused' }
 };
 
+const BIZ_CATEGORIES = {
+    'Аренда':       { icon: '🏠', fixedAmount: 176800, dayOfMonth: 5,  cls: 'cat-arenda' },
+    'КУ':           { icon: '💡', fixedAmount: null,   dayOfMonth: 15, cls: 'cat-ku' },
+    'Оборудование': { icon: '🔧', fixedAmount: null,   dayOfMonth: null, cls: 'cat-equip' },
+    'Интернет':     { icon: '🌐', fixedAmount: null,   dayOfMonth: null, cls: 'cat-internet' },
+    'Прочее':       { icon: '📦', fixedAmount: null,   dayOfMonth: null, cls: 'cat-other' }
+};
+
 function genId(prefix) {
     return prefix + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
+// ---------- Статус ----------
 function setStatus(text, state) {
     const el = document.getElementById('statusText');
     const dot = document.getElementById('syncDot');
@@ -64,10 +77,11 @@ function updateVersionDisplay() {
     if (el) el.textContent = 'v' + dataVersion;
 }
 
+// ---------- Кэш ----------
 function saveToLocalCache() {
     try {
         localStorage.setItem('autoservice_cache', JSON.stringify({
-            clients, orders, version: dataVersion, updatedAt: new Date().toISOString()
+            clients, orders, businessExpenses, version: dataVersion, updatedAt: new Date().toISOString()
         }));
     } catch (e) { console.warn(e); }
 }
@@ -79,6 +93,7 @@ function loadFromLocalCache() {
             const parsed = JSON.parse(saved);
             clients = parsed.clients || [];
             orders = parsed.orders || [];
+            businessExpenses = parsed.businessExpenses || [];
             dataVersion = parsed.version || 0;
             return true;
         }
@@ -86,6 +101,7 @@ function loadFromLocalCache() {
     return false;
 }
 
+// ---------- Миграция ----------
 function migrateData() {
     clients = clients.map(c => {
         if (c.car !== undefined && !c.cars) {
@@ -108,8 +124,15 @@ function migrateData() {
         if (!o.acceptedAt) o.acceptedAt = '';
         return o;
     });
+    businessExpenses = (businessExpenses || []).map(e => {
+        if (!e.id) e.id = genId('bexp');
+        if (e.paid === undefined) e.paid = false;
+        if (e.comment === undefined) e.comment = '';
+        return e;
+    });
 }
 
+// ---------- Firebase ----------
 async function saveToFirebase() {
     saveToLocalCache();
     if (!isReady) { setStatus('Ожидание подключения...', ''); return; }
@@ -118,7 +141,7 @@ async function saveToFirebase() {
     setStatus('Сохранение...', '');
     try {
         await db.collection('data').doc('main').set({
-            clients, orders, version: dataVersion,
+            clients, orders, businessExpenses, version: dataVersion,
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         });
         updateVersionDisplay();
@@ -142,6 +165,7 @@ function subscribeToFirebase() {
                 firstSnapshot = true;
                 clients = data.clients || [];
                 orders = data.orders || [];
+                businessExpenses = data.businessExpenses || [];
                 dataVersion = newVersion;
                 migrateData();
                 isReady = true;
@@ -152,6 +176,7 @@ function subscribeToFirebase() {
             } else if (newVersion !== dataVersion) {
                 clients = data.clients || [];
                 orders = data.orders || [];
+                businessExpenses = data.businessExpenses || [];
                 dataVersion = newVersion;
                 migrateData();
                 saveToLocalCache();
@@ -198,8 +223,11 @@ async function init() {
         setStatus('Ошибка авторизации: ' + e.code, 'error');
         isReady = true;
     }
+    // Автозаполнение полей расхода бизнеса при старте
+    onBizExpCategoryChange();
 }
 
+// ---------- Временные списки ----------
 function addCarToList() {
     const model = document.getElementById('carModel').value.trim();
     const plate = document.getElementById('carPlate').value.trim();
@@ -254,6 +282,7 @@ function renderTempExpenses() {
     `).join('') + `<div style="font-size:12px; color:#888; text-align:right; padding:4px 8px 0 0;">Итого: <b>${total.toFixed(0)} ₽</b></div>`;
 }
 
+// ---------- Клиенты ----------
 function addClient() {
     const name = document.getElementById('clientName').value.trim();
     const phone = document.getElementById('clientPhone').value.trim();
@@ -496,6 +525,7 @@ function updateOrderFormVisibility() {
     }
 }
 
+// ---------- Заказы ----------
 function addOrder() {
     if (selectedClientIdx === null) { alert('Выберите клиента'); return; }
     if (selectedCarIdx === null) { alert('Выберите автомобиль'); return; }
@@ -593,7 +623,7 @@ function removeEditOrderExpense(idx) { editOrderExpenses.splice(idx, 1); renderO
 
 function setOrderFilter(f) {
     orderFilter = f;
-    document.querySelectorAll('.filter-btn').forEach(btn => {
+    document.querySelectorAll('[data-status]').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.status === f);
     });
     renderOrders();
@@ -803,12 +833,238 @@ function renderOrders() {
     }).join('');
 }
 
+// ============================================================
+//  РАСХОДЫ БИЗНЕСА
+// ============================================================
+
+function onBizExpCategoryChange() {
+    const cat = document.getElementById('bizExpCategory').value;
+    const info = BIZ_CATEGORIES[cat];
+    if (!info) return;
+    const amountEl = document.getElementById('bizExpAmount');
+    const dateEl = document.getElementById('bizExpDate');
+
+    if (info.fixedAmount) amountEl.value = info.fixedAmount;
+
+    if (info.dayOfMonth) {
+        const today = new Date();
+        const day = today.getDate();
+        let year = today.getFullYear();
+        let month = today.getMonth();
+        if (day > info.dayOfMonth) {
+            month++;
+            if (month > 11) { month = 0; year++; }
+        }
+        const dd = String(info.dayOfMonth).padStart(2, '0');
+        const mm = String(month + 1).padStart(2, '0');
+        dateEl.value = year + '-' + mm + '-' + dd;
+    }
+}
+
+function addBizExpense() {
+    const category = document.getElementById('bizExpCategory').value;
+    const amount = parseFloat(document.getElementById('bizExpAmount').value) || 0;
+    const date = document.getElementById('bizExpDate').value;
+    const comment = document.getElementById('bizExpComment').value.trim();
+
+    if (!amount || amount <= 0) { alert('Введите сумму больше нуля'); return; }
+    if (!date) { alert('Выберите дату платежа'); return; }
+
+    businessExpenses.push({
+        id: genId('bexp'),
+        category, amount, date, comment,
+        paid: false,
+        createdAt: new Date().toISOString()
+    });
+
+    document.getElementById('bizExpAmount').value = '';
+    document.getElementById('bizExpComment').value = '';
+    onBizExpCategoryChange();
+    renderAll();
+    saveToFirebase();
+}
+
+function deleteBizExpense(id) {
+    if (!confirm('Удалить расход?')) return;
+    businessExpenses = businessExpenses.filter(e => e.id !== id);
+    renderAll();
+    saveToFirebase();
+}
+
+function toggleBizExpensePaid(id) {
+    const e = businessExpenses.find(x => x.id === id);
+    if (!e) return;
+    e.paid = !e.paid;
+    renderAll();
+    saveToFirebase();
+}
+
+function startEditBizExpense(id) {
+    editBizExpIdx = id;
+    renderBizExpenses();
+}
+
+function cancelEditBizExpense() {
+    editBizExpIdx = null;
+    renderBizExpenses();
+}
+
+function saveEditBizExpense() {
+    const e = businessExpenses.find(x => x.id === editBizExpIdx);
+    if (!e) { editBizExpIdx = null; return; }
+    const category = document.getElementById('editBizCat').value;
+    const amount = parseFloat(document.getElementById('editBizAmount').value) || 0;
+    const date = document.getElementById('editBizDate').value;
+    const comment = document.getElementById('editBizComment').value.trim();
+    if (!amount || amount <= 0) { alert('Введите сумму больше нуля'); return; }
+    if (!date) { alert('Выберите дату'); return; }
+    e.category = category;
+    e.amount = amount;
+    e.date = date;
+    e.comment = comment;
+    editBizExpIdx = null;
+    renderAll();
+    saveToFirebase();
+}
+
+function setBizExpFilter(f) {
+    bizExpFilter = f;
+    document.querySelectorAll('[data-expfilter]').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.expfilter === f);
+    });
+    renderBizExpenses();
+}
+
+function isBizExpOverdue(e) {
+    if (e.paid) return false;
+    const d = parseDate(e.date);
+    if (!d) return false;
+    const today = new Date(); today.setHours(0,0,0,0);
+    return d < today;
+}
+
+function renderBizExpenses() {
+    const container = document.getElementById('bizExpList');
+    if (!container) return;
+
+    let list = businessExpenses.slice();
+    if (bizExpFilter === 'planned') list = list.filter(e => !e.paid);
+    if (bizExpFilter === 'paid') list = list.filter(e => e.paid);
+
+    // Сортировка: сначала неоплаченные, потом оплаченные; внутри — по дате (свежие сверху)
+    list.sort((a, b) => {
+        if (a.paid !== b.paid) return a.paid ? 1 : -1;
+        return b.date.localeCompare(a.date);
+    });
+
+    if (list.length === 0) {
+        container.innerHTML = '<div class="empty">Нет расходов' + (bizExpFilter !== 'all' ? ' в этой категории' : '') + '</div>';
+        return;
+    }
+
+    container.innerHTML = list.map(e => {
+        const info = BIZ_CATEGORIES[e.category] || { icon: '📦', cls: 'cat-other' };
+        const isOverdue = isBizExpOverdue(e);
+
+        if (editBizExpIdx === e.id) {
+            const catOptions = Object.keys(BIZ_CATEGORIES).map(k =>
+                `<option value="${k}" ${e.category === k ? 'selected' : ''}>${BIZ_CATEGORIES[k].icon} ${k}</option>`
+            ).join('');
+            return `
+            <div class="card" style="border-color:#ffc107;">
+                <div class="card-header"><strong>✏️ Редактирование расхода</strong></div>
+                <label>Категория:</label>
+                <select id="editBizCat">${catOptions}</select>
+                <label>Сумма (руб.):</label>
+                <input type="number" id="editBizAmount" value="${e.amount}" />
+                <label>Дата платежа:</label>
+                <input type="date" id="editBizDate" value="${e.date}" />
+                <label>Комментарий:</label>
+                <input type="text" id="editBizComment" value="${escapeAttr(e.comment || '')}" />
+                <button class="btn-success" onclick="saveEditBizExpense()">✓ Сохранить</button>
+                <button class="btn-secondary" onclick="cancelEditBizExpense()">Отмена</button>
+            </div>`;
+        }
+
+        const dateFmt = parseDate(e.date) ? parseDate(e.date).toLocaleDateString('ru-RU') : e.date;
+        const paidBadge = e.paid
+            ? '<span class="badge badge-paid">✅ Оплачено</span>'
+            : (isOverdue ? '<span class="badge badge-overdue-exp">⚠️ Просрочено</span>' : '<span class="badge badge-planned">📋 Планируется</span>');
+
+        return `
+        <div class="card" style="${e.paid ? 'opacity:0.75;' : ''}">
+            <div class="card-header">
+                <div>
+                    <strong>${info.icon} ${escapeHtml(e.category)}</strong>
+                    <small>${dateFmt}</small>
+                </div>
+                <div class="card-actions">
+                    <button class="btn-icon ${e.paid ? 'unpaid' : 'paid'}" onclick="toggleBizExpensePaid('${e.id}')"
+                        title="${e.paid ? 'Вернуть в план' : 'Отметить оплачено'}">${e.paid ? '↩️' : '✅'}</button>
+                    <button class="btn-icon edit" onclick="startEditBizExpense('${e.id}')">✏️</button>
+                    <button class="btn-icon delete" onclick="deleteBizExpense('${e.id}')">✕</button>
+                </div>
+            </div>
+            <div class="order-row">
+                <span class="label">Сумма:</span>
+                <span><b>${e.amount.toFixed(0)} ₽</b></span>
+            </div>
+            <div class="order-row">
+                <span class="label">Статус:</span>
+                <span>${paidBadge}</span>
+            </div>
+            ${e.comment ? `<div class="order-comment">💬 ${escapeHtml(e.comment)}</div>` : ''}
+        </div>`;
+    }).join('');
+}
+
+function renderBizExpTotals() {
+    const el = document.getElementById('bizExpTotalsTotal');
+    if (!el) return;
+
+    let paidAll = 0, plannedAll = 0, overdueAll = 0;
+    let paidMonth = 0, plannedMonth = 0;
+
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+
+    businessExpenses.forEach(e => {
+        const amt = e.amount || 0;
+        const d = parseDate(e.date);
+        if (e.paid) {
+            paidAll += amt;
+            if (d && d >= monthStart && d <= monthEnd) paidMonth += amt;
+        } else {
+            plannedAll += amt;
+            if (d && d >= monthStart && d <= monthEnd) plannedMonth += amt;
+            if (isBizExpOverdue(e)) overdueAll += amt;
+        }
+    });
+
+    function box(title, value, sub, cls) {
+        return `<div class="total-box"><div class="total-title">${title}</div><div class="total-value ${cls || ''}">${value}</div>${sub ? `<div class="total-sub">${sub}</div>` : ''}</div>`;
+    }
+
+    el.innerHTML =
+        box('Оплачено (всего)', paidAll.toFixed(0) + ' ₽', '', 'loss') +
+        box('Планируется (всего)', plannedAll.toFixed(0) + ' ₽') +
+        box('Просрочено', overdueAll.toFixed(0) + ' ₽', '', overdueAll > 0 ? 'loss' : '') +
+        box('Оплачено (месяц)', paidMonth.toFixed(0) + ' ₽', '', 'loss') +
+        box('План (месяц)', plannedMonth.toFixed(0) + ' ₽') +
+        box('Всего расходов', businessExpenses.length);
+}
+
+// ============================================================
+//  ОБЩИЕ ИТОГИ
+// ============================================================
+
 function calcTotals() {
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
     function empty() {
-        return { count: 0, cost: 0, prepay: 0, expense: 0, profit: 0, done: 0, in_progress: 0, callback: 0, inspection: 0, processing: 0, refused: 0 };
+        return { count: 0, cost: 0, prepay: 0, expense: 0, profit: 0, bizPaid: 0, done: 0, in_progress: 0, callback: 0, inspection: 0, processing: 0, refused: 0 };
     }
     let total = empty(), month = empty();
 
@@ -851,6 +1107,16 @@ function calcTotals() {
             else if (st === 'refused') month.refused++;
         }
     });
+
+    // Расходы бизнеса (только оплаченные, по дате)
+    businessExpenses.forEach(e => {
+        if (!e.paid) return;
+        const d = parseDate(e.date);
+        if (!d) return;
+        total.bizPaid += e.amount || 0;
+        if (d >= monthStart) month.bizPaid += e.amount || 0;
+    });
+
     return { total, month };
 }
 
@@ -865,8 +1131,11 @@ function renderTotals() {
     }
 
     function makeGrid(s) {
+        const netProfit = s.profit - s.bizPaid;
         return box('Всего заказов', s.count) +
-               box('Прибыль', s.profit.toFixed(0) + ' ₽', 'предоплата − расходы', s.profit >= 0 ? 'profit' : 'loss') +
+               box('Прибыль по заказам', s.profit.toFixed(0) + ' ₽', 'предоплата − расходы по заказам', s.profit >= 0 ? 'profit' : 'loss') +
+               box('Расходы бизнеса', s.bizPaid.toFixed(0) + ' ₽', 'оплачено', s.bizPaid > 0 ? 'loss' : '') +
+               box('Чистая прибыль', netProfit.toFixed(0) + ' ₽', 'прибыль − расходы бизнеса', netProfit >= 0 ? 'profit' : 'loss') +
                box('Готовых', s.done, '', 'profit') +
                box('В работе', s.in_progress) +
                box('Перезвонить', s.callback) +
@@ -874,7 +1143,7 @@ function renderTotals() {
                box('Обработка', s.processing) +
                box('Отказ', s.refused) +
                box('Предоплаты', s.prepay.toFixed(0) + ' ₽') +
-               box('Расходы', s.expense.toFixed(0) + ' ₽') +
+               box('Расходы по заказам', s.expense.toFixed(0) + ' ₽') +
                box('Сумма работ', s.cost.toFixed(0) + ' ₽');
     }
 
@@ -882,12 +1151,17 @@ function renderTotals() {
     elMonth.innerHTML = makeGrid(t.month);
 }
 
+// ============================================================
+//  ОЧИСТКА И ВСПОМОГАТЕЛЬНЫЕ
+// ============================================================
+
 function clearAll() {
     if (!confirm('Удалить ВСЕ данные? Это действие необратимо!')) return;
-    clients = []; orders = []; tempCars = []; tempExpenses = [];
+    clients = []; orders = []; businessExpenses = []; tempCars = []; tempExpenses = [];
     selectedClientIdx = null; selectedCarIdx = null;
     editClientIdx = null; editClientCars = [];
     editOrderIdx = null; editOrderExpenses = [];
+    editBizExpIdx = null;
     renderAll();
     saveToFirebase();
 }
@@ -914,6 +1188,8 @@ function renderAll() {
     renderCarPicker();
     updateOrderFormVisibility();
     renderOrders();
+    renderBizExpenses();
+    renderBizExpTotals();
     renderTotals();
     updateVersionDisplay();
     renderTempCars();
@@ -921,4 +1197,4 @@ function renderAll() {
 }
 
 init();
-console.log('🔧 Автосервис Админ v9.1 (со статусом Обработка)');
+console.log('🔧 Автосервис Админ v10.0 (раздел Расходы бизнеса)');
