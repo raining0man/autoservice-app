@@ -1,6 +1,7 @@
 // ============================================================
-// Автосервис Админ v10.0 — Firebase Sync
-// Добавлен раздел "Расходы бизнеса" (планируемые / фактические)
+// Автосервис Админ v10.1 — Firebase Sync
+// - Название заказа = Вид работ
+// - Тост-уведомления вместо alert (работают в Telegram)
 // ============================================================
 
 const firebaseConfig = {
@@ -64,7 +65,20 @@ function genId(prefix) {
     return prefix + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
-// ---------- Статус ----------
+// ---------- Тост-уведомления ----------
+function toast(message, type) {
+    const el = document.getElementById('app-toast');
+    if (!el) { console.log('[toast]', message); return; }
+    el.textContent = message;
+    el.className = type ? type : '';
+    el.classList.add('show');
+    clearTimeout(el._t);
+    el._t = setTimeout(() => { el.classList.remove('show'); }, 2500);
+}
+function toastErr(msg) { toast(msg, 'error'); }
+function toastOk(msg) { toast(msg, 'success'); }
+
+// ---------- Статус синхронизации ----------
 function setStatus(text, state) {
     const el = document.getElementById('statusText');
     const dot = document.getElementById('syncDot');
@@ -101,7 +115,6 @@ function loadFromLocalCache() {
     return false;
 }
 
-// ---------- Миграция ----------
 function migrateData() {
     clients = clients.map(c => {
         if (c.car !== undefined && !c.cars) {
@@ -223,8 +236,8 @@ async function init() {
         setStatus('Ошибка авторизации: ' + e.code, 'error');
         isReady = true;
     }
-    // Автозаполнение полей расхода бизнеса при старте
-    onBizExpCategoryChange();
+    // Автозаполнение полей расхода бизнеса
+    setTimeout(onBizExpCategoryChange, 100);
 }
 
 // ---------- Временные списки ----------
@@ -233,10 +246,11 @@ function addCarToList() {
     const plate = document.getElementById('carPlate').value.trim();
     const vin = document.getElementById('carVin').value.trim();
     const paintCode = document.getElementById('carPaintCode').value.trim();
-    if (!model) { alert('Введите марку и модель авто'); return; }
+    if (!model) { toastErr('Введите марку и модель авто'); return; }
     tempCars.push({ id: genId('car'), model, plate, vin, paintCode });
     ['carModel', 'carPlate', 'carVin', 'carPaintCode'].forEach(id => document.getElementById(id).value = '');
     renderTempCars();
+    toastOk('Авто добавлено');
 }
 
 function removeCarFromList(i) { tempCars.splice(i, 1); renderTempCars(); }
@@ -259,8 +273,8 @@ function renderTempCars() {
 function addExpenseToList() {
     const desc = document.getElementById('expenseDesc').value.trim();
     const amount = parseFloat(document.getElementById('expenseAmount').value) || 0;
-    if (!desc) { alert('Введите описание расхода'); return; }
-    if (amount <= 0) { alert('Введите сумму больше нуля'); return; }
+    if (!desc) { toastErr('Введите описание расхода'); return; }
+    if (amount <= 0) { toastErr('Введите сумму больше нуля'); return; }
     tempExpenses.push({ desc, amount });
     document.getElementById('expenseDesc').value = '';
     document.getElementById('expenseAmount').value = '';
@@ -287,8 +301,8 @@ function addClient() {
     const name = document.getElementById('clientName').value.trim();
     const phone = document.getElementById('clientPhone').value.trim();
     const comment = document.getElementById('clientComment').value.trim();
-    if (!name) { alert('Введите ФИО клиента'); return; }
-    if (tempCars.length === 0) { alert('Добавьте хотя бы один автомобиль'); return; }
+    if (!name) { toastErr('Введите ФИО клиента'); return; }
+    if (tempCars.length === 0) { toastErr('Добавьте хотя бы один автомобиль'); return; }
     clients.push({ id: genId('client'), name, phone, comment, cars: [...tempCars] });
     tempCars = [];
     document.getElementById('clientName').value = '';
@@ -297,6 +311,7 @@ function addClient() {
     renderTempCars();
     renderAll();
     saveToFirebase();
+    toastOk('Клиент добавлен');
 }
 
 function deleteClient(index) {
@@ -327,7 +342,7 @@ function addEditCar() {
     const plate = document.getElementById('editCarPlate_' + editClientIdx).value.trim();
     const vin = document.getElementById('editCarVin_' + editClientIdx).value.trim();
     const paintCode = document.getElementById('editCarPaintCode_' + editClientIdx).value.trim();
-    if (!model) { alert('Введите марку и модель'); return; }
+    if (!model) { toastErr('Введите марку и модель'); return; }
     editClientCars.push({ id: genId('car'), model, plate, vin, paintCode });
     renderClients();
 }
@@ -342,10 +357,10 @@ function saveEditClient() {
     const name = document.getElementById('editName_' + editClientIdx).value.trim();
     const phone = document.getElementById('editPhone_' + editClientIdx).value.trim();
     const comment = document.getElementById('editComment_' + editClientIdx).value.trim();
-    if (!name) { alert('Введите ФИО'); return; }
-    if (editClientCars.length === 0) { alert('Добавьте хотя бы одно авто'); return; }
+    if (!name) { toastErr('Введите ФИО'); return; }
+    if (editClientCars.length === 0) { toastErr('Добавьте хотя бы одно авто'); return; }
     for (const car of editClientCars) {
-        if (!car.model || !car.model.trim()) { alert('У каждого авто должна быть марка и модель'); return; }
+        if (!car.model || !car.model.trim()) { toastErr('У каждого авто должна быть марка и модель'); return; }
         if (!car.id) car.id = genId('car');
     }
     clients[editClientIdx].name = name;
@@ -361,6 +376,7 @@ function saveEditClient() {
     selectedCarIdx = null;
     renderAll();
     saveToFirebase();
+    toastOk('Клиент обновлён');
 }
 
 function clientMatchesSearch(c, q) {
@@ -527,8 +543,8 @@ function updateOrderFormVisibility() {
 
 // ---------- Заказы ----------
 function addOrder() {
-    if (selectedClientIdx === null) { alert('Выберите клиента'); return; }
-    if (selectedCarIdx === null) { alert('Выберите автомобиль'); return; }
+    if (selectedClientIdx === null) { toastErr('Выберите клиента'); return; }
+    if (selectedCarIdx === null) { toastErr('Выберите автомобиль'); return; }
 
     const workType = document.getElementById('orderWorkType').value;
     const work = document.getElementById('orderWork').value.trim();
@@ -538,7 +554,7 @@ function addOrder() {
     const deadline = document.getElementById('orderDeadline').value;
     const prepayment = parseFloat(document.getElementById('orderPrepayment').value) || 0;
     const comment = document.getElementById('orderComment').value.trim();
-    if (!work) { alert('Введите описание работ'); return; }
+    if (!work) { toastErr('Введите описание работ'); return; }
 
     const client = clients[selectedClientIdx];
     const car = client.cars[selectedCarIdx];
@@ -568,6 +584,7 @@ function addOrder() {
     updateOrderFormVisibility();
     renderAll();
     saveToFirebase();
+    toastOk('Заказ добавлен');
 }
 
 function deleteOrder(index) {
@@ -598,7 +615,7 @@ function saveEditOrder() {
     const deadline = document.getElementById('editDeadline_' + i).value;
     const prepayment = parseFloat(document.getElementById('editPrepayment_' + i).value) || 0;
     const comment = document.getElementById('editComment_' + i).value.trim();
-    if (!work) { alert('Введите описание работ'); return; }
+    if (!work) { toastErr('Введите описание работ'); return; }
 
     o.workType = workType; o.work = work; o.status = status; o.cost = cost;
     o.acceptedAt = acceptedAt; o.deadline = deadline; o.prepayment = prepayment;
@@ -608,13 +625,14 @@ function saveEditOrder() {
     editOrderExpenses = [];
     renderAll();
     saveToFirebase();
+    toastOk('Заказ обновлён');
 }
 
 function addEditOrderExpense() {
     const desc = document.getElementById('editExpDesc_' + editOrderIdx).value.trim();
     const amount = parseFloat(document.getElementById('editExpAmount_' + editOrderIdx).value) || 0;
-    if (!desc) { alert('Введите описание расхода'); return; }
-    if (amount <= 0) { alert('Введите сумму больше нуля'); return; }
+    if (!desc) { toastErr('Введите описание расхода'); return; }
+    if (amount <= 0) { toastErr('Введите сумму больше нуля'); return; }
     editOrderExpenses.push({ desc, amount });
     renderOrders();
 }
@@ -784,7 +802,8 @@ function renderOrders() {
         <div class="card">
             <div class="card-header">
                 <div>
-                    <strong>${escapeHtml(o.work)}</strong>
+                    <strong>${escapeHtml(o.workType || 'Вид работ не указан')}</strong>
+                    <small>${escapeHtml(o.work)}</small>
                     <small>👤 ${escapeHtml(o.clientName)} · 🚗 ${escapeHtml(car.model)}${car.plate ? ' (' + escapeHtml(car.plate) + ')' : ''}${carExtras}</small>
                 </div>
                 <div class="card-actions">
@@ -796,10 +815,6 @@ function renderOrders() {
             <div class="order-row">
                 <span class="label">Статус:</span>
                 <span><span class="badge ${st.cls}">${st.label}</span></span>
-            </div>
-            <div class="order-row">
-                <span class="label">Вид работ:</span>
-                <span><span class="badge type">${escapeHtml(o.workType || 'не указан')}</span></span>
             </div>
             <div class="order-row">
                 <span class="label">Принят в работу:</span>
@@ -838,13 +853,20 @@ function renderOrders() {
 // ============================================================
 
 function onBizExpCategoryChange() {
-    const cat = document.getElementById('bizExpCategory').value;
+    const sel = document.getElementById('bizExpCategory');
+    if (!sel) return;
+    const cat = sel.value;
     const info = BIZ_CATEGORIES[cat];
     if (!info) return;
     const amountEl = document.getElementById('bizExpAmount');
     const dateEl = document.getElementById('bizExpDate');
+    if (!amountEl || !dateEl) return;
 
-    if (info.fixedAmount) amountEl.value = info.fixedAmount;
+    if (info.fixedAmount) {
+        amountEl.value = info.fixedAmount;
+    } else {
+        amountEl.value = '';
+    }
 
     if (info.dayOfMonth) {
         const today = new Date();
@@ -858,30 +880,41 @@ function onBizExpCategoryChange() {
         const dd = String(info.dayOfMonth).padStart(2, '0');
         const mm = String(month + 1).padStart(2, '0');
         dateEl.value = year + '-' + mm + '-' + dd;
+    } else {
+        dateEl.value = '';
     }
 }
 
 function addBizExpense() {
-    const category = document.getElementById('bizExpCategory').value;
-    const amount = parseFloat(document.getElementById('bizExpAmount').value) || 0;
-    const date = document.getElementById('bizExpDate').value;
-    const comment = document.getElementById('bizExpComment').value.trim();
+    try {
+        const category = document.getElementById('bizExpCategory').value;
+        const amountStr = document.getElementById('bizExpAmount').value;
+        const date = document.getElementById('bizExpDate').value;
+        const comment = document.getElementById('bizExpComment').value.trim();
+        const amount = parseFloat(amountStr) || 0;
 
-    if (!amount || amount <= 0) { alert('Введите сумму больше нуля'); return; }
-    if (!date) { alert('Выберите дату платежа'); return; }
+        console.log('addBizExpense:', { category, amount, date, comment });
 
-    businessExpenses.push({
-        id: genId('bexp'),
-        category, amount, date, comment,
-        paid: false,
-        createdAt: new Date().toISOString()
-    });
+        if (!amount || amount <= 0) { toastErr('Введите сумму больше нуля'); return; }
+        if (!date) { toastErr('Выберите дату платежа'); return; }
 
-    document.getElementById('bizExpAmount').value = '';
-    document.getElementById('bizExpComment').value = '';
-    onBizExpCategoryChange();
-    renderAll();
-    saveToFirebase();
+        businessExpenses.push({
+            id: genId('bexp'),
+            category, amount, date, comment,
+            paid: false,
+            createdAt: new Date().toISOString()
+        });
+
+        document.getElementById('bizExpAmount').value = '';
+        document.getElementById('bizExpComment').value = '';
+        onBizExpCategoryChange();
+        renderAll();
+        saveToFirebase();
+        toastOk('Расход добавлен: ' + amount.toFixed(0) + ' ₽');
+    } catch (e) {
+        console.error('Ошибка addBizExpense:', e);
+        toastErr('Ошибка: ' + e.message);
+    }
 }
 
 function deleteBizExpense(id) {
@@ -889,6 +922,7 @@ function deleteBizExpense(id) {
     businessExpenses = businessExpenses.filter(e => e.id !== id);
     renderAll();
     saveToFirebase();
+    toastOk('Удалено');
 }
 
 function toggleBizExpensePaid(id) {
@@ -897,6 +931,7 @@ function toggleBizExpensePaid(id) {
     e.paid = !e.paid;
     renderAll();
     saveToFirebase();
+    toastOk(e.paid ? 'Отмечено как оплачено' : 'Возвращено в план');
 }
 
 function startEditBizExpense(id) {
@@ -911,13 +946,13 @@ function cancelEditBizExpense() {
 
 function saveEditBizExpense() {
     const e = businessExpenses.find(x => x.id === editBizExpIdx);
-    if (!e) { editBizExpIdx = null; return; }
+    if (!e) { editBizExpIdx = null; renderBizExpenses(); return; }
     const category = document.getElementById('editBizCat').value;
     const amount = parseFloat(document.getElementById('editBizAmount').value) || 0;
     const date = document.getElementById('editBizDate').value;
     const comment = document.getElementById('editBizComment').value.trim();
-    if (!amount || amount <= 0) { alert('Введите сумму больше нуля'); return; }
-    if (!date) { alert('Выберите дату'); return; }
+    if (!amount || amount <= 0) { toastErr('Введите сумму больше нуля'); return; }
+    if (!date) { toastErr('Выберите дату'); return; }
     e.category = category;
     e.amount = amount;
     e.date = date;
@@ -925,6 +960,7 @@ function saveEditBizExpense() {
     editBizExpIdx = null;
     renderAll();
     saveToFirebase();
+    toastOk('Сохранено');
 }
 
 function setBizExpFilter(f) {
@@ -951,10 +987,9 @@ function renderBizExpenses() {
     if (bizExpFilter === 'planned') list = list.filter(e => !e.paid);
     if (bizExpFilter === 'paid') list = list.filter(e => e.paid);
 
-    // Сортировка: сначала неоплаченные, потом оплаченные; внутри — по дате (свежие сверху)
     list.sort((a, b) => {
         if (a.paid !== b.paid) return a.paid ? 1 : -1;
-        return b.date.localeCompare(a.date);
+        return (b.date || '').localeCompare(a.date || '');
     });
 
     if (list.length === 0) {
@@ -1000,201 +1035,4 @@ function renderBizExpenses() {
                 </div>
                 <div class="card-actions">
                     <button class="btn-icon ${e.paid ? 'unpaid' : 'paid'}" onclick="toggleBizExpensePaid('${e.id}')"
-                        title="${e.paid ? 'Вернуть в план' : 'Отметить оплачено'}">${e.paid ? '↩️' : '✅'}</button>
-                    <button class="btn-icon edit" onclick="startEditBizExpense('${e.id}')">✏️</button>
-                    <button class="btn-icon delete" onclick="deleteBizExpense('${e.id}')">✕</button>
-                </div>
-            </div>
-            <div class="order-row">
-                <span class="label">Сумма:</span>
-                <span><b>${e.amount.toFixed(0)} ₽</b></span>
-            </div>
-            <div class="order-row">
-                <span class="label">Статус:</span>
-                <span>${paidBadge}</span>
-            </div>
-            ${e.comment ? `<div class="order-comment">💬 ${escapeHtml(e.comment)}</div>` : ''}
-        </div>`;
-    }).join('');
-}
-
-function renderBizExpTotals() {
-    const el = document.getElementById('bizExpTotalsTotal');
-    if (!el) return;
-
-    let paidAll = 0, plannedAll = 0, overdueAll = 0;
-    let paidMonth = 0, plannedMonth = 0;
-
-    const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
-
-    businessExpenses.forEach(e => {
-        const amt = e.amount || 0;
-        const d = parseDate(e.date);
-        if (e.paid) {
-            paidAll += amt;
-            if (d && d >= monthStart && d <= monthEnd) paidMonth += amt;
-        } else {
-            plannedAll += amt;
-            if (d && d >= monthStart && d <= monthEnd) plannedMonth += amt;
-            if (isBizExpOverdue(e)) overdueAll += amt;
-        }
-    });
-
-    function box(title, value, sub, cls) {
-        return `<div class="total-box"><div class="total-title">${title}</div><div class="total-value ${cls || ''}">${value}</div>${sub ? `<div class="total-sub">${sub}</div>` : ''}</div>`;
-    }
-
-    el.innerHTML =
-        box('Оплачено (всего)', paidAll.toFixed(0) + ' ₽', '', 'loss') +
-        box('Планируется (всего)', plannedAll.toFixed(0) + ' ₽') +
-        box('Просрочено', overdueAll.toFixed(0) + ' ₽', '', overdueAll > 0 ? 'loss' : '') +
-        box('Оплачено (месяц)', paidMonth.toFixed(0) + ' ₽', '', 'loss') +
-        box('План (месяц)', plannedMonth.toFixed(0) + ' ₽') +
-        box('Всего расходов', businessExpenses.length);
-}
-
-// ============================================================
-//  ОБЩИЕ ИТОГИ
-// ============================================================
-
-function calcTotals() {
-    const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-
-    function empty() {
-        return { count: 0, cost: 0, prepay: 0, expense: 0, profit: 0, bizPaid: 0, done: 0, in_progress: 0, callback: 0, inspection: 0, processing: 0, refused: 0 };
-    }
-    let total = empty(), month = empty();
-
-    orders.forEach(o => {
-        const exp = (o.expenses || []).reduce((s, e) => s + e.amount, 0);
-        const prepay = o.prepayment || 0;
-        const cost = o.cost || 0;
-        const profit = prepay - exp;
-        const st = o.status || 'in_progress';
-
-        total.count++;
-        total.cost += cost;
-        total.prepay += prepay;
-        total.expense += exp;
-        total.profit += profit;
-        if (st === 'done') total.done++;
-        else if (st === 'in_progress') total.in_progress++;
-        else if (st === 'callback') total.callback++;
-        else if (st === 'inspection') total.inspection++;
-        else if (st === 'processing') total.processing++;
-        else if (st === 'refused') total.refused++;
-
-        let created = null;
-        if (o.createdAt) created = new Date(o.createdAt);
-        else if (o.date) {
-            const p = o.date.split('.');
-            if (p.length === 3) created = new Date(p[2], p[1] - 1, p[0]);
-        }
-        if (created && created >= monthStart) {
-            month.count++;
-            month.cost += cost;
-            month.prepay += prepay;
-            month.expense += exp;
-            month.profit += profit;
-            if (st === 'done') month.done++;
-            else if (st === 'in_progress') month.in_progress++;
-            else if (st === 'callback') month.callback++;
-            else if (st === 'inspection') month.inspection++;
-            else if (st === 'processing') month.processing++;
-            else if (st === 'refused') month.refused++;
-        }
-    });
-
-    // Расходы бизнеса (только оплаченные, по дате)
-    businessExpenses.forEach(e => {
-        if (!e.paid) return;
-        const d = parseDate(e.date);
-        if (!d) return;
-        total.bizPaid += e.amount || 0;
-        if (d >= monthStart) month.bizPaid += e.amount || 0;
-    });
-
-    return { total, month };
-}
-
-function renderTotals() {
-    const t = calcTotals();
-    const elTotal = document.getElementById('totalsTotal');
-    const elMonth = document.getElementById('totalsMonth');
-    if (!elTotal || !elMonth) return;
-
-    function box(title, value, sub, cls) {
-        return `<div class="total-box"><div class="total-title">${title}</div><div class="total-value ${cls || ''}">${value}</div>${sub ? `<div class="total-sub">${sub}</div>` : ''}</div>`;
-    }
-
-    function makeGrid(s) {
-        const netProfit = s.profit - s.bizPaid;
-        return box('Всего заказов', s.count) +
-               box('Прибыль по заказам', s.profit.toFixed(0) + ' ₽', 'предоплата − расходы по заказам', s.profit >= 0 ? 'profit' : 'loss') +
-               box('Расходы бизнеса', s.bizPaid.toFixed(0) + ' ₽', 'оплачено', s.bizPaid > 0 ? 'loss' : '') +
-               box('Чистая прибыль', netProfit.toFixed(0) + ' ₽', 'прибыль − расходы бизнеса', netProfit >= 0 ? 'profit' : 'loss') +
-               box('Готовых', s.done, '', 'profit') +
-               box('В работе', s.in_progress) +
-               box('Перезвонить', s.callback) +
-               box('Осмотр', s.inspection) +
-               box('Обработка', s.processing) +
-               box('Отказ', s.refused) +
-               box('Предоплаты', s.prepay.toFixed(0) + ' ₽') +
-               box('Расходы по заказам', s.expense.toFixed(0) + ' ₽') +
-               box('Сумма работ', s.cost.toFixed(0) + ' ₽');
-    }
-
-    elTotal.innerHTML = makeGrid(t.total);
-    elMonth.innerHTML = makeGrid(t.month);
-}
-
-// ============================================================
-//  ОЧИСТКА И ВСПОМОГАТЕЛЬНЫЕ
-// ============================================================
-
-function clearAll() {
-    if (!confirm('Удалить ВСЕ данные? Это действие необратимо!')) return;
-    clients = []; orders = []; businessExpenses = []; tempCars = []; tempExpenses = [];
-    selectedClientIdx = null; selectedCarIdx = null;
-    editClientIdx = null; editClientCars = [];
-    editOrderIdx = null; editOrderExpenses = [];
-    editBizExpIdx = null;
-    renderAll();
-    saveToFirebase();
-}
-
-function escapeHtml(text) {
-    if (text === undefined || text === null) return '';
-    const div = document.createElement('div');
-    div.textContent = String(text);
-    return div.innerHTML;
-}
-
-function escapeAttr(text) {
-    if (text === undefined || text === null) return '';
-    const AMP = String.fromCharCode(38);
-    const QUOT = String.fromCharCode(34);
-    const LT = String.fromCharCode(60);
-    const GT = String.fromCharCode(62);
-    return String(text).split(AMP).join(AMP + 'amp;').split(QUOT).join(AMP + 'quot;').split(LT).join(AMP + 'lt;').split(GT).join(AMP + 'gt;');
-}
-
-function renderAll() {
-    renderClients();
-    renderClientPicker();
-    renderCarPicker();
-    updateOrderFormVisibility();
-    renderOrders();
-    renderBizExpenses();
-    renderBizExpTotals();
-    renderTotals();
-    updateVersionDisplay();
-    renderTempCars();
-    renderTempExpenses();
-}
-
-init();
-console.log('🔧 Автосервис Админ v10.0 (раздел Расходы бизнеса)');
+                        title="${e.paid ? 'Вернуть в план' : 'От
