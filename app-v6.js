@@ -1,7 +1,8 @@
 // ============================================================
-// Автосервис Админ v11.0 — Firebase Sync
-// Чистая прибыль = прибыль по заказам − все расходы бизнеса ЗА ПЕРИОД
-// Период начисления отделён от даты фактического платежа
+// Автосервис Админ v12.0 — Firebase Sync
+// Логика чистой прибыли по датам:
+// - Плановые аренда/ку/интернет с датой в СЛЕДУЮЩЕМ месяце → вычитаются из текущего месяца
+// - Оплаченные расходы с датой в ТЕКУЩЕМ месяце → вычитаются из текущего месяца
 // ============================================================
 
 const firebaseConfig = {
@@ -54,14 +55,13 @@ const STATUS_LABELS = {
 };
 
 const BIZ_CATEGORIES = {
-    'Аренда':       { icon: '🏠', fixedAmount: 176800, dayOfMonth: 5,  cls: 'cat-arenda' },
-    'КУ':           { icon: '💡', fixedAmount: null,   dayOfMonth: 15, cls: 'cat-ku' },
-    'Оборудование': { icon: '🔧', fixedAmount: null,   dayOfMonth: null, cls: 'cat-equip' },
-    'Интернет':     { icon: '🌐', fixedAmount: null,   dayOfMonth: null, cls: 'cat-internet' },
-    'Прочее':       { icon: '📦', fixedAmount: null,   dayOfMonth: null, cls: 'cat-other' }
+    'аренда':       { icon: '🏠', fixedAmount: 176800, dayOfMonth: 5,  recurring: true },
+    'ку':           { icon: '💡', fixedAmount: null,   dayOfMonth: 15, recurring: true },
+    'интернет':     { icon: '🌐', fixedAmount: null,   dayOfMonth: null, recurring: true },
+    'маркетинг':    { icon: '📣', fixedAmount: null,   dayOfMonth: null, recurring: false },
+    'оборудование': { icon: '🔧', fixedAmount: null,   dayOfMonth: null, recurring: false },
+    'прочее':       { icon: '📦', fixedAmount: null,   dayOfMonth: null, recurring: false }
 };
-
-const MONTH_NAMES = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
 
 function genId(prefix) {
     return prefix + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -91,7 +91,6 @@ function updateVersionDisplay() {
     if (el) el.textContent = 'v' + dataVersion;
 }
 
-// ---------- Кэш ----------
 function saveToLocalCache() {
     try {
         localStorage.setItem('autoservice_cache', JSON.stringify({
@@ -113,6 +112,18 @@ function loadFromLocalCache() {
         }
     } catch (e) { console.warn(e); }
     return false;
+}
+
+function migrateCategoryName(cat) {
+    const map = {
+        'Аренда': 'аренда',
+        'КУ': 'ку',
+        'Интернет': 'интернет',
+        'Маркетинг': 'маркетинг',
+        'Оборудование': 'оборудование',
+        'Прочее': 'прочее'
+    };
+    return map[cat] || cat;
 }
 
 function migrateData() {
@@ -141,13 +152,11 @@ function migrateData() {
         if (!e.id) e.id = genId('bexp');
         if (e.paid === undefined) e.paid = false;
         if (e.comment === undefined) e.comment = '';
-        // Если period нет — берём из date
-        if (!e.period && e.date) {
-            e.period = e.date.substring(0, 7); // YYYY-MM
-        }
-        if (!e.period) {
-            const now = new Date();
-            e.period = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+        // Приводим категорию к нижнему регистру
+        e.category = migrateCategoryName(e.category);
+        // Если нет даты — пробуем взять из period (старое поле)
+        if (!e.date && e.period) {
+            e.date = e.period + '-01';
         }
         return e;
     });
@@ -219,40 +228,6 @@ function subscribeToFirebase() {
     });
 }
 
-// ---------- Заполнение селектов периода ----------
-function initPeriodSelects() {
-    const monthSel = document.getElementById('bizExpPeriodMonth');
-    const yearSel = document.getElementById('bizExpPeriodYear');
-    if (!monthSel || !yearSel) return;
-
-    monthSel.innerHTML = MONTH_NAMES.map((name, i) =>
-        `<option value="${i + 1}">${name}</option>`
-    ).join('');
-
-    const now = new Date();
-    const curYear = now.getFullYear();
-    let years = '';
-    for (let y = curYear - 1; y <= curYear + 2; y++) {
-        years += `<option value="${y}">${y}</option>`;
-    }
-    yearSel.innerHTML = years;
-
-    // По умолчанию — текущий месяц
-    monthSel.value = now.getMonth() + 1;
-    yearSel.value = curYear;
-}
-
-function setPeriodFromDate(dateStr) {
-    if (!dateStr) return;
-    const monthSel = document.getElementById('bizExpPeriodMonth');
-    const yearSel = document.getElementById('bizExpPeriodYear');
-    if (!monthSel || !yearSel) return;
-    const d = new Date(dateStr + 'T00:00:00');
-    if (isNaN(d.getTime())) return;
-    monthSel.value = d.getMonth() + 1;
-    yearSel.value = d.getFullYear();
-}
-
 async function init() {
     if (loadFromLocalCache()) {
         migrateData();
@@ -262,7 +237,6 @@ async function init() {
     } else {
         setStatus('Подключение...', '');
     }
-    initPeriodSelects();
     onBizExpCategoryChange();
     setTimeout(() => {
         if (!firebaseConnected) {
@@ -687,16 +661,6 @@ function setOrderFilter(f) {
 
 function parseDate(s) { if (!s) return null; const d = new Date(s + 'T00:00:00'); return isNaN(d.getTime()) ? null : d; }
 
-function periodToLabel(period) {
-    if (!period) return '—';
-    const parts = period.split('-');
-    if (parts.length !== 2) return period;
-    const y = parts[0];
-    const m = parseInt(parts[1]) - 1;
-    if (m < 0 || m > 11) return period;
-    return MONTH_NAMES[m] + ' ' + y;
-}
-
 function getDeadlineInfo(deadline, status) {
     if (status === 'done') return { text: 'выполнен', cls: 'status-done' };
     if (status === 'refused') return { text: 'отказ', cls: 'status-refused' };
@@ -921,6 +885,7 @@ function onBizExpCategoryChange() {
         const day = today.getDate();
         let year = today.getFullYear();
         let month = today.getMonth();
+        // Если сегодня > dayOfMonth — платёж в следующем месяце
         if (day > info.dayOfMonth) {
             month++;
             if (month > 11) { month = 0; year++; }
@@ -928,18 +893,8 @@ function onBizExpCategoryChange() {
         const dd = String(info.dayOfMonth).padStart(2, '0');
         const mm = String(month + 1).padStart(2, '0');
         dateEl.value = year + '-' + mm + '-' + dd;
-        // И период по дате платежа
-        setPeriodFromDate(dateEl.value);
     } else {
         dateEl.value = '';
-        // Период — текущий месяц
-        const now = new Date();
-        const monthSel = document.getElementById('bizExpPeriodMonth');
-        const yearSel = document.getElementById('bizExpPeriodYear');
-        if (monthSel && yearSel) {
-            monthSel.value = now.getMonth() + 1;
-            yearSel.value = now.getFullYear();
-        }
     }
 }
 
@@ -951,19 +906,12 @@ function addBizExpense() {
         const comment = document.getElementById('bizExpComment').value.trim();
         const amount = parseFloat(amountStr) || 0;
 
-        const monthSel = document.getElementById('bizExpPeriodMonth');
-        const yearSel = document.getElementById('bizExpPeriodYear');
-        const pm = parseInt(monthSel.value);
-        const py = parseInt(yearSel.value);
-        const period = py + '-' + String(pm).padStart(2, '0');
-
         if (!amount || amount <= 0) { toastErr('Введите сумму больше нуля'); return; }
         if (!date) { toastErr('Выберите дату платежа'); return; }
-        if (!pm || !py) { toastErr('Выберите период'); return; }
 
         businessExpenses.push({
             id: genId('bexp'),
-            category, amount, period, date, comment,
+            category, amount, date, comment,
             paid: false,
             createdAt: new Date().toISOString()
         });
@@ -973,7 +921,7 @@ function addBizExpense() {
         onBizExpCategoryChange();
         renderAll();
         saveToFirebase();
-        toastOk('Расход добавлен: ' + amount.toFixed(0) + ' ₽ за ' + periodToLabel(period));
+        toastOk('Расход добавлен: ' + amount.toFixed(0) + ' ₽');
     } catch (e) {
         console.error('Ошибка addBizExpense:', e);
         toastErr('Ошибка: ' + e.message);
@@ -1014,17 +962,10 @@ function saveEditBizExpense() {
     const amount = parseFloat(document.getElementById('editBizAmount').value) || 0;
     const date = document.getElementById('editBizDate').value;
     const comment = document.getElementById('editBizComment').value.trim();
-
-    const pm = parseInt(document.getElementById('editBizPeriodMonth').value);
-    const py = parseInt(document.getElementById('editBizPeriodYear').value);
-    const period = py + '-' + String(pm).padStart(2, '0');
-
     if (!amount || amount <= 0) { toastErr('Введите сумму больше нуля'); return; }
     if (!date) { toastErr('Выберите дату'); return; }
-
     e.category = category;
     e.amount = amount;
-    e.period = period;
     e.date = date;
     e.comment = comment;
     editBizExpIdx = null;
@@ -1059,10 +1000,6 @@ function renderBizExpenses() {
 
     list.sort((a, b) => {
         if (a.paid !== b.paid) return a.paid ? 1 : -1;
-        // Сначала по периоду (свежие сверху), потом по дате
-        const pa = a.period || '';
-        const pb = b.period || '';
-        if (pa !== pb) return pb.localeCompare(pa);
         return (b.date || '').localeCompare(a.date || '');
     });
 
@@ -1072,29 +1009,13 @@ function renderBizExpenses() {
     }
 
     container.innerHTML = list.map(e => {
-        const info = BIZ_CATEGORIES[e.category] || { icon: '📦', cls: 'cat-other' };
+        const info = BIZ_CATEGORIES[e.category] || { icon: '📦' };
         const isOverdue = isBizExpOverdue(e);
 
         if (editBizExpIdx === e.id) {
             const catOptions = Object.keys(BIZ_CATEGORIES).map(k =>
                 `<option value="${k}" ${e.category === k ? 'selected' : ''}>${BIZ_CATEGORIES[k].icon} ${k}</option>`
             ).join('');
-
-            // Разбор текущего периода
-            const periodParts = (e.period || '').split('-');
-            const curM = periodParts.length === 2 ? parseInt(periodParts[1]) : (new Date().getMonth() + 1);
-            const curY = periodParts.length === 2 ? parseInt(periodParts[0]) : new Date().getFullYear();
-
-            const monthOpts = MONTH_NAMES.map((name, i) =>
-                `<option value="${i + 1}" ${curM === i + 1 ? 'selected' : ''}>${name}</option>`
-            ).join('');
-
-            let yearOpts = '';
-            const nowYear = new Date().getFullYear();
-            for (let y = nowYear - 1; y <= nowYear + 2; y++) {
-                yearOpts += `<option value="${y}" ${curY === y ? 'selected' : ''}>${y}</option>`;
-            }
-
             return `
             <div class="card" style="border-color:#ffc107;">
                 <div class="card-header"><strong>✏️ Редактирование расхода</strong></div>
@@ -1102,12 +1023,7 @@ function renderBizExpenses() {
                 <select id="editBizCat">${catOptions}</select>
                 <label>Сумма (руб.):</label>
                 <input type="number" id="editBizAmount" value="${e.amount}" />
-                <label>Период (месяц начисления):</label>
-                <div class="period-row">
-                    <select id="editBizPeriodMonth">${monthOpts}</select>
-                    <select id="editBizPeriodYear">${yearOpts}</select>
-                </div>
-                <label>Дата фактического платежа:</label>
+                <label>Дата платежа:</label>
                 <input type="date" id="editBizDate" value="${e.date}" />
                 <label>Комментарий:</label>
                 <input type="text" id="editBizComment" value="${escapeAttr(e.comment || '')}" />
@@ -1126,7 +1042,7 @@ function renderBizExpenses() {
             <div class="card-header">
                 <div>
                     <strong>${info.icon} ${escapeHtml(e.category)}</strong>
-                    <small>Период: <b>${periodToLabel(e.period)}</b> · платёж: ${dateFmt}</small>
+                    <small>${dateFmt}</small>
                 </div>
                 <div class="card-actions">
                     <button class="btn-icon ${e.paid ? 'unpaid' : 'paid'}" onclick="toggleBizExpensePaid('${e.id}')"
@@ -1138,10 +1054,6 @@ function renderBizExpenses() {
             <div class="order-row">
                 <span class="label">Сумма:</span>
                 <span><b>${e.amount.toFixed(0)} ₽</b></span>
-            </div>
-            <div class="order-row">
-                <span class="label">За период:</span>
-                <span><span class="badge period">${periodToLabel(e.period)}</span></span>
             </div>
             <div class="order-row">
                 <span class="label">Статус:</span>
@@ -1157,19 +1069,12 @@ function renderBizExpTotals() {
     if (!el) return;
 
     let paidAll = 0, plannedAll = 0, overdueAll = 0;
-    let paidMonth = 0, plannedMonth = 0;
-
-    const now = new Date();
-    const curPeriod = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
 
     businessExpenses.forEach(e => {
         const amt = e.amount || 0;
-        if (e.paid) {
-            paidAll += amt;
-            if (e.period === curPeriod) paidMonth += amt;
-        } else {
+        if (e.paid) paidAll += amt;
+        else {
             plannedAll += amt;
-            if (e.period === curPeriod) plannedMonth += amt;
             if (isBizExpOverdue(e)) overdueAll += amt;
         }
     });
@@ -1182,125 +1087,172 @@ function renderBizExpTotals() {
         box('Оплачено (всего)', paidAll.toFixed(0) + ' ₽', '', 'loss') +
         box('Планируется (всего)', plannedAll.toFixed(0) + ' ₽') +
         box('Просрочено', overdueAll.toFixed(0) + ' ₽', '', overdueAll > 0 ? 'loss' : '') +
-        box('Оплачено (текущий период)', paidMonth.toFixed(0) + ' ₽', 'по периоду начисления', 'loss') +
-        box('План (текущий период)', plannedMonth.toFixed(0) + ' ₽', 'по периоду начисления') +
         box('Всего записей', businessExpenses.length);
 }
 
 // ============================================================
-//  ОБЩИЕ ИТОГИ
-//  Чистая прибыль месяца = прибыль заказов месяца − все расходы
-//  бизнеса, у которых PERIOD = текущий месяц (оплаченные и плановые)
+//  ЛОГИКА ЧИСТОЙ ПРИБЫЛИ
 // ============================================================
 
-function calcTotals() {
-    const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const curPeriod = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+// Считаем итоги за конкретный месяц (по дате внутри месяца)
+function calcMonthlyTotals(targetDate) {
+    const y = targetDate.getFullYear();
+    const m = targetDate.getMonth();
+    const monthStart = new Date(y, m, 1, 0, 0, 0);
+    const monthEnd = new Date(y, m + 1, 0, 23, 59, 59);
+    const nextMonthStart = new Date(y, m + 1, 1, 0, 0, 0);
+    const nextMonthEnd = new Date(y, m + 2, 0, 23, 59, 59);
 
-    function empty() {
-        return {
-            count: 0, cost: 0, prepay: 0, expense: 0, profit: 0,
-            bizPaid: 0, bizPlanned: 0,
-            bizPaidMonth: 0, bizPlannedMonth: 0,
-            done: 0, in_progress: 0, callback: 0, inspection: 0, processing: 0, refused: 0
-        };
-    }
-    let total = empty(), month = empty();
+    let profit = 0;
+    let plannedRecurringNext = 0;
+    let actualCurrent = 0;
+    let count = 0;
+    let done = 0, in_progress = 0, callback = 0, inspection = 0, processing = 0, refused = 0;
+    let prepaySum = 0, orderExpSum = 0, costSum = 0;
 
     orders.forEach(o => {
-        const exp = (o.expenses || []).reduce((s, e) => s + e.amount, 0);
-        const prepay = o.prepayment || 0;
-        const cost = o.cost || 0;
-        const profit = prepay - exp;
-        const st = o.status || 'in_progress';
-
-        total.count++;
-        total.cost += cost;
-        total.prepay += prepay;
-        total.expense += exp;
-        total.profit += profit;
-        if (st === 'done') total.done++;
-        else if (st === 'in_progress') total.in_progress++;
-        else if (st === 'callback') total.callback++;
-        else if (st === 'inspection') total.inspection++;
-        else if (st === 'processing') total.processing++;
-        else if (st === 'refused') total.refused++;
-
         let created = null;
         if (o.createdAt) created = new Date(o.createdAt);
         else if (o.date) {
             const p = o.date.split('.');
             if (p.length === 3) created = new Date(p[2], p[1] - 1, p[0]);
         }
-        if (created && created >= monthStart) {
-            month.count++;
-            month.cost += cost;
-            month.prepay += prepay;
-            month.expense += exp;
-            month.profit += profit;
-            if (st === 'done') month.done++;
-            else if (st === 'in_progress') month.in_progress++;
-            else if (st === 'callback') month.callback++;
-            else if (st === 'inspection') month.inspection++;
-            else if (st === 'processing') month.processing++;
-            else if (st === 'refused') month.refused++;
+        if (created && created >= monthStart && created <= monthEnd) {
+            const exp = (o.expenses || []).reduce((s, e) => s + e.amount, 0);
+            const prepay = o.prepayment || 0;
+            profit += prepay - exp;
+            count++;
+            prepaySum += prepay;
+            orderExpSum += exp;
+            costSum += (o.cost || 0);
+            const st = o.status || 'in_progress';
+            if (st === 'done') done++;
+            else if (st === 'in_progress') in_progress++;
+            else if (st === 'callback') callback++;
+            else if (st === 'inspection') inspection++;
+            else if (st === 'processing') processing++;
+            else if (st === 'refused') refused++;
         }
     });
 
     businessExpenses.forEach(e => {
-        const amt = e.amount || 0;
-        // Общие итоги: все расходы
-        if (e.paid) total.bizPaid += amt;
-        else total.bizPlanned += amt;
+        const d = parseDate(e.date);
+        if (!d) return;
+        const cat = BIZ_CATEGORIES[e.category];
+        const isRecurring = cat && cat.recurring;
 
-        // Месячные итоги: только те, у которых period == текущий месяц
-        if (e.period === curPeriod) {
-            if (e.paid) month.bizPaidMonth += amt;
-            else month.bizPlannedMonth += amt;
+        // Плановые recurring с датой в СЛЕДУЮЩЕМ месяце
+        if (!e.paid && isRecurring && d >= nextMonthStart && d <= nextMonthEnd) {
+            plannedRecurringNext += e.amount || 0;
         }
-        // Для отображения в месячном блоке — оплачено/план тоже по периоду
-        if (e.period === curPeriod) {
-            if (e.paid) month.bizPaid += amt;
-            else month.bizPlanned += amt;
+        // Фактические (оплаченные) с датой в ТЕКУЩЕМ месяце
+        if (e.paid && d >= monthStart && d <= monthEnd) {
+            actualCurrent += e.amount || 0;
         }
     });
 
-    return { total, month };
+    const bizTotal = plannedRecurringNext + actualCurrent;
+    const netProfit = profit - bizTotal;
+
+    return {
+        count, done, in_progress, callback, inspection, processing, refused,
+        prepaySum, orderExpSum, costSum,
+        profit, plannedRecurringNext, actualCurrent, bizTotal, netProfit
+    };
+}
+
+// Считаем итоги за всё время
+function calcTotalTotals() {
+    let profit = 0;
+    let count = 0;
+    let done = 0, in_progress = 0, callback = 0, inspection = 0, processing = 0, refused = 0;
+    let prepaySum = 0, orderExpSum = 0, costSum = 0;
+
+    orders.forEach(o => {
+        const exp = (o.expenses || []).reduce((s, e) => s + e.amount, 0);
+        const prepay = o.prepayment || 0;
+        profit += prepay - exp;
+        count++;
+        prepaySum += prepay;
+        orderExpSum += exp;
+        costSum += (o.cost || 0);
+        const st = o.status || 'in_progress';
+        if (st === 'done') done++;
+        else if (st === 'in_progress') in_progress++;
+        else if (st === 'callback') callback++;
+        else if (st === 'inspection') inspection++;
+        else if (st === 'processing') processing++;
+        else if (st === 'refused') refused++;
+    });
+
+    let actualAll = 0;
+    let plannedRecurringAll = 0;
+
+    businessExpenses.forEach(e => {
+        const cat = BIZ_CATEGORIES[e.category];
+        const isRecurring = cat && cat.recurring;
+        if (e.paid) actualAll += e.amount || 0;
+        else if (isRecurring) plannedRecurringAll += e.amount || 0;
+    });
+
+    const bizTotal = actualAll + plannedRecurringAll;
+    const netProfit = profit - bizTotal;
+
+    return {
+        count, done, in_progress, callback, inspection, processing, refused,
+        prepaySum, orderExpSum, costSum,
+        profit, actualAll, plannedRecurringAll, bizTotal, netProfit
+    };
 }
 
 function renderTotals() {
-    const t = calcTotals();
     const elTotal = document.getElementById('totalsTotal');
     const elMonth = document.getElementById('totalsMonth');
     if (!elTotal || !elMonth) return;
+
+    const now = new Date();
+    const monthData = calcMonthlyTotals(now);
+    const totalData = calcTotalTotals();
 
     function box(title, value, sub, cls) {
         return `<div class="total-box"><div class="total-title">${title}</div><div class="total-value ${cls || ''}">${value}</div>${sub ? `<div class="total-sub">${sub}</div>` : ''}</div>`;
     }
 
-    function makeGrid(s) {
-        const bizTotal = s.bizPaid + s.bizPlanned;
-        const netProfit = s.profit - bizTotal;
-        return box('Всего заказов', s.count) +
-               box('Прибыль по заказам', s.profit.toFixed(0) + ' ₽', 'предоплата − расходы по заказам', s.profit >= 0 ? 'profit' : 'loss') +
-               box('Оплачено (факт)', s.bizPaid.toFixed(0) + ' ₽', 'расходы бизнеса по периоду', s.bizPaid > 0 ? 'loss' : '') +
-               box('Запланировано', s.bizPlanned.toFixed(0) + ' ₽', 'расходы бизнеса по периоду', s.bizPlanned > 0 ? 'loss' : '') +
-               box('Всего расходов бизнеса', bizTotal.toFixed(0) + ' ₽', 'факт + план по периоду', bizTotal > 0 ? 'loss' : '') +
-               box('Чистая прибыль', netProfit.toFixed(0) + ' ₽', 'прибыль − все расходы за период', netProfit >= 0 ? 'profit' : 'loss') +
-               box('Готовых', s.done, '', 'profit') +
-               box('В работе', s.in_progress) +
-               box('Перезвонить', s.callback) +
-               box('Осмотр', s.inspection) +
-               box('Обработка', s.processing) +
-               box('Отказ', s.refused) +
-               box('Предоплаты', s.prepay.toFixed(0) + ' ₽') +
-               box('Расходы по заказам', s.expense.toFixed(0) + ' ₽') +
-               box('Сумма работ', s.cost.toFixed(0) + ' ₽');
-    }
+    // Общие итоги за всё время
+    elTotal.innerHTML =
+        box('Всего заказов', totalData.count) +
+        box('Прибыль по заказам', totalData.profit.toFixed(0) + ' ₽', 'предоплата − расходы по заказам', totalData.profit >= 0 ? 'profit' : 'loss') +
+        box('Факт расходов', totalData.actualAll.toFixed(0) + ' ₽', 'оплаченные', totalData.actualAll > 0 ? 'loss' : '') +
+        box('План: аренда/ку/интернет', totalData.plannedRecurringAll.toFixed(0) + ' ₽', 'неоплаченные recurring', totalData.plannedRecurringAll > 0 ? 'loss' : '') +
+        box('Всего расходов', totalData.bizTotal.toFixed(0) + ' ₽', 'факт + план', totalData.bizTotal > 0 ? 'loss' : '') +
+        box('Чистая прибыль', totalData.netProfit.toFixed(0) + ' ₽', 'прибыль − расходы', totalData.netProfit >= 0 ? 'profit' : 'loss') +
+        box('Готовых', totalData.done, '', 'profit') +
+        box('В работе', totalData.in_progress) +
+        box('Перезвонить', totalData.callback) +
+        box('Осмотр', totalData.inspection) +
+        box('Обработка', totalData.processing) +
+        box('Отказ', totalData.refused) +
+        box('Предоплаты', totalData.prepaySum.toFixed(0) + ' ₽') +
+        box('Расходы по заказам', totalData.orderExpSum.toFixed(0) + ' ₽') +
+        box('Сумма работ', totalData.costSum.toFixed(0) + ' ₽');
 
-    elTotal.innerHTML = makeGrid(t.total);
-    elMonth.innerHTML = makeGrid(t.month);
+    // Итоги за текущий месяц
+    elMonth.innerHTML =
+        box('Заказов за месяц', monthData.count) +
+        box('Прибыль по заказам', monthData.profit.toFixed(0) + ' ₽', 'предоплата − расходы по заказам', monthData.profit >= 0 ? 'profit' : 'loss') +
+        box('Факт (текущий месяц)', monthData.actualCurrent.toFixed(0) + ' ₽', 'оплачено в этом месяце', monthData.actualCurrent > 0 ? 'loss' : '') +
+        box('План (след. месяц)', monthData.plannedRecurringNext.toFixed(0) + ' ₽', 'аренда/ку/интернет', monthData.plannedRecurringNext > 0 ? 'loss' : '') +
+        box('Всего вычтено', monthData.bizTotal.toFixed(0) + ' ₽', 'факт + план', monthData.bizTotal > 0 ? 'loss' : '') +
+        box('Чистая прибыль', monthData.netProfit.toFixed(0) + ' ₽', 'прибыль − вычтено', monthData.netProfit >= 0 ? 'profit' : 'loss') +
+        box('Готовых', monthData.done, '', 'profit') +
+        box('В работе', monthData.in_progress) +
+        box('Перезвонить', monthData.callback) +
+        box('Осмотр', monthData.inspection) +
+        box('Обработка', monthData.processing) +
+        box('Отказ', monthData.refused) +
+        box('Предоплаты', monthData.prepaySum.toFixed(0) + ' ₽') +
+        box('Расходы по заказам', monthData.orderExpSum.toFixed(0) + ' ₽') +
+        box('Сумма работ', monthData.costSum.toFixed(0) + ' ₽');
 }
 
 // ============================================================
@@ -1354,4 +1306,4 @@ window.addEventListener('error', function(ev) {
 });
 
 init();
-console.log('🔧 Автосервис Админ v11.0');
+console.log('🔧 Автосервис Админ v12.0');
