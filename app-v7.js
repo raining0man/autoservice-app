@@ -1,8 +1,7 @@
 // ============================================================
-// Автосервис Админ v12.0 — Firebase Sync
-// Логика чистой прибыли по датам:
-// - Плановые аренда/ку/интернет с датой в СЛЕДУЮЩЕМ месяце → вычитаются из текущего месяца
-// - Оплаченные расходы с датой в ТЕКУЩЕМ месяце → вычитаются из текущего месяца
+// Автосервис Админ v13.0 — Firebase Sync
+// + Сворачивание секций
+// + Навигация по месяцам в итогах
 // ============================================================
 
 const firebaseConfig = {
@@ -44,6 +43,9 @@ let searchQuery = '';
 let orderFilter = 'all';
 let bizExpFilter = 'all';
 
+// Смещение отображаемого месяца в итогах (0 = текущий, -1 = прошлый и т.д.)
+let monthOffset = 0;
+
 const WORK_TYPES = ['Слесарные работы', 'Малярные работы', 'Кузовные работы', 'Арматурные работы'];
 const STATUS_LABELS = {
     'callback':    { label: '📞 Перезвонить', cls: 'status-callback' },
@@ -63,6 +65,8 @@ const BIZ_CATEGORIES = {
     'прочее':       { icon: '📦', fixedAmount: null,   dayOfMonth: null, recurring: false }
 };
 
+const MONTH_NAMES = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+
 function genId(prefix) {
     return prefix + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
@@ -78,6 +82,35 @@ function toast(message, type) {
 }
 function toastErr(msg) { toast(msg, 'error'); }
 function toastOk(msg) { toast(msg, 'success'); }
+
+// ============================================================
+//  СВОРАЧИВАНИЕ СЕКЦИЙ
+// ============================================================
+function loadUiState() {
+    try {
+        const s = localStorage.getItem('autoservice_ui');
+        return s ? JSON.parse(s) : {};
+    } catch (e) { return {}; }
+}
+function saveUiState(state) {
+    try { localStorage.setItem('autoservice_ui', JSON.stringify(state)); } catch (e) {}
+}
+function toggleSection(key) {
+    const section = document.getElementById('section-' + key);
+    if (!section) return;
+    section.classList.toggle('collapsed');
+    const state = loadUiState();
+    state[key] = section.classList.contains('collapsed');
+    saveUiState(state);
+}
+function applyCollapseState() {
+    const state = loadUiState();
+    ['clients', 'orders', 'bizexp', 'totals', 'danger'].forEach(key => {
+        const section = document.getElementById('section-' + key);
+        if (!section) return;
+        if (state[key]) section.classList.add('collapsed');
+    });
+}
 
 function setStatus(text, state) {
     const el = document.getElementById('statusText');
@@ -152,9 +185,7 @@ function migrateData() {
         if (!e.id) e.id = genId('bexp');
         if (e.paid === undefined) e.paid = false;
         if (e.comment === undefined) e.comment = '';
-        // Приводим категорию к нижнему регистру
         e.category = migrateCategoryName(e.category);
-        // Если нет даты — пробуем взять из period (старое поле)
         if (!e.date && e.period) {
             e.date = e.period + '-01';
         }
@@ -237,6 +268,7 @@ async function init() {
     } else {
         setStatus('Подключение...', '');
     }
+    applyCollapseState();
     onBizExpCategoryChange();
     setTimeout(() => {
         if (!firebaseConnected) {
@@ -885,7 +917,6 @@ function onBizExpCategoryChange() {
         const day = today.getDate();
         let year = today.getFullYear();
         let month = today.getMonth();
-        // Если сегодня > dayOfMonth — платёж в следующем месяце
         if (day > info.dayOfMonth) {
             month++;
             if (month > 11) { month = 0; year++; }
@@ -1094,7 +1125,6 @@ function renderBizExpTotals() {
 //  ЛОГИКА ЧИСТОЙ ПРИБЫЛИ
 // ============================================================
 
-// Считаем итоги за конкретный месяц (по дате внутри месяца)
 function calcMonthlyTotals(targetDate) {
     const y = targetDate.getFullYear();
     const m = targetDate.getMonth();
@@ -1141,11 +1171,9 @@ function calcMonthlyTotals(targetDate) {
         const cat = BIZ_CATEGORIES[e.category];
         const isRecurring = cat && cat.recurring;
 
-        // Плановые recurring с датой в СЛЕДУЮЩЕМ месяце
         if (!e.paid && isRecurring && d >= nextMonthStart && d <= nextMonthEnd) {
             plannedRecurringNext += e.amount || 0;
         }
-        // Фактические (оплаченные) с датой в ТЕКУЩЕМ месяце
         if (e.paid && d >= monthStart && d <= monthEnd) {
             actualCurrent += e.amount || 0;
         }
@@ -1161,7 +1189,6 @@ function calcMonthlyTotals(targetDate) {
     };
 }
 
-// Считаем итоги за всё время
 function calcTotalTotals() {
     let profit = 0;
     let count = 0;
@@ -1205,20 +1232,47 @@ function calcTotalTotals() {
     };
 }
 
+// Навигация по месяцам
+function prevMonth() {
+    monthOffset--;
+    renderTotals();
+}
+function nextMonth() {
+    if (monthOffset < 0) monthOffset++;
+    renderTotals();
+}
+function updateMonthNav() {
+    const label = document.getElementById('monthLabel');
+    const prevBtn = document.getElementById('prevMonthBtn');
+    const nextBtn = document.getElementById('nextMonthBtn');
+    if (!label) return;
+
+    const now = new Date();
+    const target = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1);
+    const monthName = MONTH_NAMES[target.getMonth()];
+    const year = target.getFullYear();
+
+    label.innerHTML = `${monthName} ${year}` + (monthOffset === 0 ? '<span class="small">текущий месяц</span>' : '');
+
+    if (nextBtn) nextBtn.disabled = (monthOffset >= 0);
+}
+
 function renderTotals() {
     const elTotal = document.getElementById('totalsTotal');
     const elMonth = document.getElementById('totalsMonth');
     if (!elTotal || !elMonth) return;
 
     const now = new Date();
-    const monthData = calcMonthlyTotals(now);
+    const targetMonth = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1);
+    const monthData = calcMonthlyTotals(targetMonth);
     const totalData = calcTotalTotals();
+
+    updateMonthNav();
 
     function box(title, value, sub, cls) {
         return `<div class="total-box"><div class="total-title">${title}</div><div class="total-value ${cls || ''}">${value}</div>${sub ? `<div class="total-sub">${sub}</div>` : ''}</div>`;
     }
 
-    // Общие итоги за всё время
     elTotal.innerHTML =
         box('Всего заказов', totalData.count) +
         box('Прибыль по заказам', totalData.profit.toFixed(0) + ' ₽', 'предоплата − расходы по заказам', totalData.profit >= 0 ? 'profit' : 'loss') +
@@ -1236,7 +1290,6 @@ function renderTotals() {
         box('Расходы по заказам', totalData.orderExpSum.toFixed(0) + ' ₽') +
         box('Сумма работ', totalData.costSum.toFixed(0) + ' ₽');
 
-    // Итоги за текущий месяц
     elMonth.innerHTML =
         box('Заказов за месяц', monthData.count) +
         box('Прибыль по заказам', monthData.profit.toFixed(0) + ' ₽', 'предоплата − расходы по заказам', monthData.profit >= 0 ? 'profit' : 'loss') +
@@ -1306,4 +1359,4 @@ window.addEventListener('error', function(ev) {
 });
 
 init();
-console.log('🔧 Автосервис Админ v12.0');
+console.log('🔧 Автосервис Админ v13.0');
