@@ -1,31 +1,24 @@
 // ============================================================
-// Автосервис Админ v7.0 — Firebase Sync (улучшенная версия)
-// - Без enablePersistence (конфликтует с Telegram WebView)
-// - Таймаут на инициализацию (15 секунд)
-// - Локальный кэш в localStorage (работает даже без Firebase)
+// Автосервис Админ v7.1 — Firebase Sync
 // ============================================================
 
-// ---------- КОНФИГ FIREBASE ----------
 const firebaseConfig = {
-  apiKey: "AIzaSyABM5s_1e0172SV8ICquhoyqZ1s0J8RZ2w",
+  apiKey: "AIzaSyABMtS_Ix0172SV8ICquhoytqZ1sDJ8RZw",
   authDomain: "menu-auto-e79d2.firebaseapp.com",
   projectId: "menu-auto-e79d2",
   storageBucket: "menu-auto-e79d2.firebasestorage.app",
   messagingSenderId: "398535584228",
-  appId: "1:398535584228:web:157d7915f0c388999983f1",
-  measurementId: "G-LYWD048M4P"
+  appId: "1:398535584228:web:157d79f5f0c38899983ff1",
+  measurementId: "G-LHYD04M8FM"
 };
 
-// ---------- ИНИЦИАЛИЗАЦИЯ ----------
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 const auth = firebase.auth();
 
-// Telegram Mini App
 const tg = window.Telegram?.WebApp;
 if (tg) { tg.ready(); tg.expand(); }
 
-// ---------- Данные ----------
 let clients = [];
 let orders = [];
 let dataVersion = 0;
@@ -42,7 +35,7 @@ let isReady = false;
 let isSaving = false;
 let firebaseConnected = false;
 
-// ---------- Статус ----------
+// ---------- СТАТУС ----------
 function setStatus(text, state) {
     const el = document.getElementById('statusText');
     const dot = document.getElementById('syncDot');
@@ -58,7 +51,7 @@ function updateVersionDisplay() {
     if (el) el.textContent = 'v' + dataVersion;
 }
 
-// ---------- ЛОКАЛЬНЫЙ КЭШ (localStorage) ----------
+// ---------- ЛОКАЛЬНЫЙ КЭШ ----------
 function saveToLocalCache() {
     try {
         localStorage.setItem('autoservice_cache', JSON.stringify({
@@ -76,17 +69,26 @@ function loadFromLocalCache() {
             clients = parsed.clients || [];
             orders = parsed.orders || [];
             dataVersion = parsed.version || 0;
-            console.log('📦 Локальный кэш загружен:', clients.length, 'клиентов,', orders.length, 'заказов');
+            console.log('📦 Локальный кэш:', clients.length, 'клиентов,', orders.length, 'заказов');
             return true;
         }
-    } catch (e) { console.warn('Ошибка чтения локального кэша:', e); }
+    } catch (e) { console.warn('Ошибка чтения кэша:', e); }
     return false;
 }
 
-// ---------- СОХРАНЕНИЕ ----------
-async function saveToFirebase() {
-    saveToLocalCache(); // сначала локально — чтобы никогда не терять данные
+// ---------- МИГРАЦИЯ СТАРОГО ФОРМАТА ----------
+function migrateOldFormat() {
+    clients = clients.map(c => {
+        if (c.car !== undefined && !c.cars) {
+            return { name: c.name, phone: c.phone, cars: c.car ? [{ model: c.car, plate: '' }] : [] };
+        }
+        return c;
+    });
+}
 
+// ---------- СОХРАНЕНИЕ В FIREBASE ----------
+async function saveToFirebase() {
+    saveToLocalCache();
     if (!isReady) {
         setStatus('Ожидание подключения...', '');
         return;
@@ -110,7 +112,7 @@ async function saveToFirebase() {
     isSaving = false;
 }
 
-// ---------- ПОДПИСКА НА ИЗМЕНЕНИЯ ----------
+// ---------- ПОДПИСКА НА FIREBASE ----------
 function subscribeToFirebase() {
     let firstSnapshot = false;
     db.collection('data').doc('main').onSnapshot((doc) => {
@@ -122,10 +124,10 @@ function subscribeToFirebase() {
             const newVersion = data.version || 0;
             if (!firstSnapshot) {
                 firstSnapshot = true;
-                // При первом снапшоте просто берём данные из облака
                 clients = data.clients || [];
                 orders = data.orders || [];
                 dataVersion = newVersion;
+                migrateOldFormat();
                 isReady = true;
                 saveToLocalCache();
                 renderAll();
@@ -135,13 +137,13 @@ function subscribeToFirebase() {
                 clients = data.clients || [];
                 orders = data.orders || [];
                 dataVersion = newVersion;
+                migrateOldFormat();
                 saveToLocalCache();
                 renderAll();
                 updateVersionDisplay();
                 setStatus('Обновлено из облака', 'ok');
             }
         } else {
-            // Документа ещё нет — первый запуск
             if (!firstSnapshot) {
                 firstSnapshot = true;
                 isReady = true;
@@ -152,15 +154,14 @@ function subscribeToFirebase() {
         console.error('❌ onSnapshot error:', error);
         firebaseConnected = false;
         setStatus('Нет связи с облаком', 'error');
-        // Работаем с локальным кэшем
         isReady = true;
     });
 }
 
-// ---------- АВТОРИЗАЦИЯ + СТАРТ ----------
+// ---------- ИНИЦИАЛИЗАЦИЯ ----------
 async function init() {
-    // 1. Сразу показываем локальный кэш (мгновенно)
     if (loadFromLocalCache()) {
+        migrateOldFormat();
         renderAll();
         updateVersionDisplay();
         setStatus('Локальные данные. Подключение...', '');
@@ -168,7 +169,6 @@ async function init() {
         setStatus('Подключение...', '');
     }
 
-    // 2. Таймаут — если Firebase не ответил за 15 секунд, показываем ошибку
     const timeoutId = setTimeout(() => {
         if (!firebaseConnected) {
             console.warn('⚠️ Firebase не ответил за 15 секунд');
@@ -186,14 +186,8 @@ async function init() {
     } catch (e) {
         clearTimeout(timeoutId);
         console.error('❌ Ошибка авторизации:', e.code, e.message);
-        if (e.code === 'auth/operation-not-allowed') {
-            setStatus('Ошибка: анонимная авторизация не включена', 'error');
-        } else if (e.code === 'auth/network-request-failed') {
-            setStatus('Ошибка: нет доступа к Firebase', 'error');
-        } else {
-            setStatus('Ошибка авторизации: ' + e.code, 'error');
-        }
-        isReady = true; // всё равно позволяем работать с локальным кэшем
+        setStatus('Ошибка авторизации: ' + e.code, 'error');
+        isReady = true;
     }
 }
 
@@ -758,4 +752,4 @@ function renderAll() {
 
 // ---------- СТАРТ ----------
 init();
-console.log('🔧 Автосервис Админ v7.0 — Firebase Sync (улучшенная)');
+console.log('🔧 Автосервис Админ v7.1 — Firebase Sync');
