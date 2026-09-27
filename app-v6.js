@@ -1,5 +1,6 @@
 // ============================================================
-// Автосервис Админ v7.1 — Firebase Sync
+// Автосервис Админ v8.0 — Firebase Sync + расширенные функции
+// - Виды работ, статусы, комментарии, даты, поиск, итоги
 // ============================================================
 
 const firebaseConfig = {
@@ -19,6 +20,7 @@ const auth = firebase.auth();
 const tg = window.Telegram?.WebApp;
 if (tg) { tg.ready(); tg.expand(); }
 
+// ---------- Данные ----------
 let clients = [];
 let orders = [];
 let dataVersion = 0;
@@ -35,7 +37,12 @@ let isReady = false;
 let isSaving = false;
 let firebaseConnected = false;
 
-// ---------- СТАТУС ----------
+let searchQuery = '';
+let orderFilter = 'all'; // 'all' | 'in_progress' | 'done'
+
+const WORK_TYPES = ['Слесарные работы', 'Малярные работы', 'Кузовные работы', 'Арматурные работы'];
+
+// ---------- Статус ----------
 function setStatus(text, state) {
     const el = document.getElementById('statusText');
     const dot = document.getElementById('syncDot');
@@ -51,7 +58,7 @@ function updateVersionDisplay() {
     if (el) el.textContent = 'v' + dataVersion;
 }
 
-// ---------- ЛОКАЛЬНЫЙ КЭШ ----------
+// ---------- Локальный кэш ----------
 function saveToLocalCache() {
     try {
         localStorage.setItem('autoservice_cache', JSON.stringify({
@@ -76,17 +83,29 @@ function loadFromLocalCache() {
     return false;
 }
 
-// ---------- МИГРАЦИЯ СТАРОГО ФОРМАТА ----------
-function migrateOldFormat() {
+// ---------- Миграция старых данных ----------
+function migrateData() {
     clients = clients.map(c => {
         if (c.car !== undefined && !c.cars) {
-            return { name: c.name, phone: c.phone, cars: c.car ? [{ model: c.car, plate: '' }] : [] };
+            return {
+                name: c.name, phone: c.phone,
+                cars: c.car ? [{ model: c.car, plate: '' }] : [],
+                comment: ''
+            };
         }
+        if (c.comment === undefined) c.comment = '';
         return c;
+    });
+    orders = orders.map(o => {
+        if (!o.workType) o.workType = 'Слесарные работы';
+        if (!o.status) o.status = 'in_progress';
+        if (!o.comment) o.comment = '';
+        if (!o.acceptedAt) o.acceptedAt = '';
+        return o;
     });
 }
 
-// ---------- СОХРАНЕНИЕ В FIREBASE ----------
+// ---------- Сохранение ----------
 async function saveToFirebase() {
     saveToLocalCache();
     if (!isReady) {
@@ -112,7 +131,7 @@ async function saveToFirebase() {
     isSaving = false;
 }
 
-// ---------- ПОДПИСКА НА FIREBASE ----------
+// ---------- Подписка ----------
 function subscribeToFirebase() {
     let firstSnapshot = false;
     db.collection('data').doc('main').onSnapshot((doc) => {
@@ -127,7 +146,7 @@ function subscribeToFirebase() {
                 clients = data.clients || [];
                 orders = data.orders || [];
                 dataVersion = newVersion;
-                migrateOldFormat();
+                migrateData();
                 isReady = true;
                 saveToLocalCache();
                 renderAll();
@@ -137,7 +156,7 @@ function subscribeToFirebase() {
                 clients = data.clients || [];
                 orders = data.orders || [];
                 dataVersion = newVersion;
-                migrateOldFormat();
+                migrateData();
                 saveToLocalCache();
                 renderAll();
                 updateVersionDisplay();
@@ -158,10 +177,10 @@ function subscribeToFirebase() {
     });
 }
 
-// ---------- ИНИЦИАЛИЗАЦИЯ ----------
+// ---------- Старт ----------
 async function init() {
     if (loadFromLocalCache()) {
-        migrateOldFormat();
+        migrateData();
         renderAll();
         updateVersionDisplay();
         setStatus('Локальные данные. Подключение...', '');
@@ -171,14 +190,12 @@ async function init() {
 
     const timeoutId = setTimeout(() => {
         if (!firebaseConnected) {
-            console.warn('⚠️ Firebase не ответил за 15 секунд');
             setStatus('Нет связи с облаком. Работаем локально', 'error');
             isReady = true;
         }
     }, 15000);
 
     try {
-        console.log('🔐 Авторизация Firebase...');
         const userCred = await auth.signInAnonymously();
         console.log('✅ Авторизован. UID:', userCred.user.uid);
         setStatus('Авторизован. Загрузка данных...', '');
@@ -191,7 +208,7 @@ async function init() {
     }
 }
 
-// ---------- ВРЕМЕННЫЕ СПИСКИ ----------
+// ---------- Временные списки ----------
 function addCarToList() {
     const model = document.getElementById('carModel').value.trim();
     const plate = document.getElementById('carPlate').value.trim();
@@ -246,18 +263,20 @@ function renderTempExpenses() {
     `;
 }
 
-// ---------- КЛИЕНТЫ ----------
+// ---------- Клиенты ----------
 function addClient() {
     const name = document.getElementById('clientName').value.trim();
     const phone = document.getElementById('clientPhone').value.trim();
+    const comment = document.getElementById('clientComment').value.trim();
     if (!name) { alert('Введите ФИО клиента'); return; }
     if (tempCars.length === 0) { alert('Добавьте хотя бы один автомобиль'); return; }
 
-    clients.push({ name, phone, cars: [...tempCars] });
+    clients.push({ name, phone, cars: [...tempCars], comment });
     tempCars = [];
 
     document.getElementById('clientName').value = '';
     document.getElementById('clientPhone').value = '';
+    document.getElementById('clientComment').value = '';
     renderTempCars();
     renderAll();
     saveToFirebase();
@@ -309,8 +328,10 @@ function removeEditCar(idx) {
 function saveEditClient() {
     const nameEl = document.getElementById('editName_' + editClientIdx);
     const phoneEl = document.getElementById('editPhone_' + editClientIdx);
+    const commentEl = document.getElementById('editComment_' + editClientIdx);
     const name = nameEl.value.trim();
     const phone = phoneEl.value.trim();
+    const comment = commentEl ? commentEl.value.trim() : '';
     if (!name) { alert('Введите ФИО'); return; }
     if (editClientCars.length === 0) { alert('Добавьте хотя бы одно авто'); return; }
     for (const car of editClientCars) {
@@ -321,6 +342,7 @@ function saveEditClient() {
     }
     clients[editClientIdx].name = name;
     clients[editClientIdx].phone = phone;
+    clients[editClientIdx].comment = comment;
     clients[editClientIdx].cars = editClientCars.map(c => ({
         model: c.model.trim(),
         plate: (c.plate || '').trim()
@@ -333,16 +355,46 @@ function saveEditClient() {
     saveToFirebase();
 }
 
-// ---------- РЕНДЕР КЛИЕНТОВ ----------
+// ---------- Рендер клиентов ----------
+function clientMatchesSearch(c, q) {
+    if (!q) return true;
+    q = q.toLowerCase();
+    if ((c.name || '').toLowerCase().includes(q)) return true;
+    if ((c.phone || '').toLowerCase().includes(q)) return true;
+    if ((c.comment || '').toLowerCase().includes(q)) return true;
+    if ((c.cars || []).some(car =>
+        (car.model || '').toLowerCase().includes(q) ||
+        (car.plate || '').toLowerCase().includes(q)
+    )) return true;
+    return false;
+}
+
+function onSearchInput() {
+    const el = document.getElementById('searchInput');
+    searchQuery = el ? el.value.trim() : '';
+    renderClients();
+}
+
 function renderClients() {
     const container = document.getElementById('clientsList');
     if (!container) return;
+
     if (clients.length === 0) {
         container.innerHTML = '<div class="empty">Нет клиентов</div>';
         return;
     }
 
-    container.innerHTML = clients.map((c, i) => {
+    const filtered = clients.map((c, i) => ({ ...c, _idx: i }))
+        .filter(c => clientMatchesSearch(c, searchQuery));
+
+    if (filtered.length === 0) {
+        container.innerHTML = '<div class="empty">Ничего не найдено</div>';
+        return;
+    }
+
+    container.innerHTML = filtered.map(c => {
+        const i = c._idx;
+
         if (editClientIdx === i) {
             let carsHtml = '';
             for (let idx = 0; idx < editClientCars.length; idx++) {
@@ -368,6 +420,8 @@ function renderClients() {
                 <input type="text" id="editName_${i}" value="${escapeAttr(c.name)}" />
                 <label>Телефон:</label>
                 <input type="tel" id="editPhone_${i}" value="${escapeAttr(c.phone || '')}" />
+                <label>Комментарий:</label>
+                <textarea id="editComment_${i}" rows="2">${escapeHtml(c.comment || '')}</textarea>
 
                 <div class="sub-section">
                     <div class="sub-title">🚗 Автомобили</div>
@@ -404,12 +458,13 @@ function renderClients() {
                 </div>
             </div>
             <div>${carsList}</div>
+            ${c.comment ? `<div class="order-comment">💬 ${escapeHtml(c.comment)}</div>` : ''}
         </div>
         `;
     }).join('');
 }
 
-// ---------- ПИКЕР КЛИЕНТОВ ----------
+// ---------- Пикер клиентов ----------
 function renderClientPicker() {
     const el = document.getElementById('clientPicker');
     if (!el) return;
@@ -434,7 +489,7 @@ function selectClient(idx) {
     updateOrderFormVisibility();
 }
 
-// ---------- ПИКЕР АВТО ----------
+// ---------- Пикер авто ----------
 function renderCarPicker() {
     const section = document.getElementById('carPickerSection');
     const el = document.getElementById('carPicker');
@@ -468,18 +523,26 @@ function selectCar(idx) {
 function updateOrderFormVisibility() {
     const form = document.getElementById('orderFormSection');
     if (!form) return;
-    form.style.display = (selectedClientIdx !== null && selectedCarIdx !== null) ? 'block' : 'none';
+    const show = (selectedClientIdx !== null && selectedCarIdx !== null);
+    form.style.display = show ? 'block' : 'none';
+    if (show && !document.getElementById('orderAccepted').value) {
+        const today = new Date().toISOString().split('T')[0];
+        document.getElementById('orderAccepted').value = today;
+    }
 }
 
-// ---------- ЗАКАЗЫ ----------
+// ---------- Заказы ----------
 function addOrder() {
     if (selectedClientIdx === null) { alert('Выберите клиента'); return; }
     if (selectedCarIdx === null) { alert('Выберите автомобиль'); return; }
 
+    const workType = document.getElementById('orderWorkType').value;
     const work = document.getElementById('orderWork').value.trim();
     const cost = parseFloat(document.getElementById('orderCost').value) || 0;
+    const acceptedAt = document.getElementById('orderAccepted').value;
     const deadline = document.getElementById('orderDeadline').value;
     const prepayment = parseFloat(document.getElementById('orderPrepayment').value) || 0;
+    const comment = document.getElementById('orderComment').value.trim();
 
     if (!work) { alert('Введите описание работ'); return; }
 
@@ -491,19 +554,26 @@ function addOrder() {
         clientPhone: client.phone,
         carModel: car.model,
         carPlate: car.plate,
+        workType: workType,
         work: work,
+        status: 'in_progress',
         cost: cost,
+        acceptedAt: acceptedAt,
         deadline: deadline,
         prepayment: prepayment,
+        comment: comment,
         expenses: [...tempExpenses],
-        date: new Date().toLocaleDateString('ru-RU')
+        date: new Date().toLocaleDateString('ru-RU'),
+        createdAt: new Date().toISOString()
     });
 
     tempExpenses = [];
     document.getElementById('orderWork').value = '';
     document.getElementById('orderCost').value = '';
+    document.getElementById('orderAccepted').value = '';
     document.getElementById('orderDeadline').value = '';
     document.getElementById('orderPrepayment').value = '';
+    document.getElementById('orderComment').value = '';
     renderTempExpenses();
 
     selectedClientIdx = null;
@@ -539,22 +609,26 @@ function cancelEditOrder() {
 
 function saveEditOrder() {
     const o = orders[editOrderIdx];
-    const workEl = document.getElementById('editWork_' + editOrderIdx);
-    const costEl = document.getElementById('editCost_' + editOrderIdx);
-    const deadlineEl = document.getElementById('editDeadline_' + editOrderIdx);
-    const prepaymentEl = document.getElementById('editPrepayment_' + editOrderIdx);
-
-    const work = workEl.value.trim();
-    const cost = parseFloat(costEl.value) || 0;
-    const deadline = deadlineEl.value;
-    const prepayment = parseFloat(prepaymentEl.value) || 0;
+    const i = editOrderIdx;
+    const workType = document.getElementById('editWorkType_' + i).value;
+    const work = document.getElementById('editWork_' + i).value.trim();
+    const status = document.getElementById('editStatus_' + i).value;
+    const cost = parseFloat(document.getElementById('editCost_' + i).value) || 0;
+    const acceptedAt = document.getElementById('editAccepted_' + i).value;
+    const deadline = document.getElementById('editDeadline_' + i).value;
+    const prepayment = parseFloat(document.getElementById('editPrepayment_' + i).value) || 0;
+    const comment = document.getElementById('editComment_' + i).value.trim();
 
     if (!work) { alert('Введите описание работ'); return; }
 
+    o.workType = workType;
     o.work = work;
+    o.status = status;
     o.cost = cost;
+    o.acceptedAt = acceptedAt;
     o.deadline = deadline;
     o.prepayment = prepayment;
+    o.comment = comment;
     o.expenses = [...editOrderExpenses];
 
     editOrderIdx = null;
@@ -579,29 +653,60 @@ function removeEditOrderExpense(idx) {
     renderOrders();
 }
 
-// ---------- ДЕДЛАЙН ----------
-function getDeadlineInfo(deadline) {
-    if (!deadline) return { text: 'без срока', cls: '' };
-    const today = new Date(); today.setHours(0,0,0,0);
-    const dl = new Date(deadline + 'T00:00:00');
-    const diff = Math.round((dl - today) / (1000 * 60 * 60 * 24));
-    const formatted = dl.toLocaleDateString('ru-RU');
-    if (diff < 0)  return { text: 'просрочен (' + formatted + ')', cls: 'overdue' };
-    if (diff === 0) return { text: 'сегодня (' + formatted + ')',  cls: 'today' };
-    if (diff <= 3)  return { text: 'через ' + diff + ' дн. (' + formatted + ')', cls: 'today' };
-    return { text: formatted, cls: 'ok' };
+function setOrderFilter(f) {
+    orderFilter = f;
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.status === f);
+    });
+    renderOrders();
 }
 
-// ---------- РЕНДЕР ЗАКАЗОВ ----------
+// ---------- Дедлайн ----------
+function parseDate(s) {
+    if (!s) return null;
+    const d = new Date(s + 'T00:00:00');
+    return isNaN(d.getTime()) ? null : d;
+}
+
+function getDeadlineInfo(deadline, status) {
+    if (status === 'done') return { text: 'выполнен', cls: 'status-done' };
+    if (!deadline) return { text: 'без срока', cls: '' };
+    const today = new Date(); today.setHours(0,0,0,0);
+    const dl = parseDate(deadline);
+    if (!dl) return { text: 'без срока', cls: '' };
+    const diff = Math.round((dl - today) / (1000 * 60 * 60 * 24));
+    const formatted = dl.toLocaleDateString('ru-RU');
+    if (diff < 0)  return { text: 'просрочен на ' + Math.abs(diff) + ' дн. (' + formatted + ')', cls: 'overdue' };
+    if (diff === 0) return { text: 'сегодня (' + formatted + ')',  cls: 'today' };
+    if (diff <= 3)  return { text: 'через ' + diff + ' дн. (' + formatted + ')', cls: 'today' };
+    return { text: formatted + ' (через ' + diff + ' дн.)', cls: 'ok' };
+}
+
+function formatAccepted(dateStr) {
+    if (!dateStr) return '—';
+    const d = parseDate(dateStr);
+    if (!d) return dateStr;
+    return d.toLocaleDateString('ru-RU');
+}
+
+// ---------- Рендер заказов ----------
 function renderOrders() {
     const container = document.getElementById('ordersList');
     if (!container) return;
-    if (orders.length === 0) {
-        container.innerHTML = '<div class="empty">Нет заказов</div>';
+
+    let visible = orders.map((o, i) => ({ ...o, _idx: i }));
+    if (orderFilter !== 'all') {
+        visible = visible.filter(o => (o.status || 'in_progress') === orderFilter);
+    }
+
+    if (visible.length === 0) {
+        container.innerHTML = '<div class="empty">Нет заказов' + (orderFilter !== 'all' ? ' в этой категории' : '') + '</div>';
         return;
     }
 
-    container.innerHTML = orders.map((o, i) => {
+    container.innerHTML = visible.map(o => {
+        const i = o._idx;
+
         if (editOrderIdx === i) {
             const expensesTotal = editOrderExpenses.reduce((s, e) => s + e.amount, 0);
             let expensesHtml = '';
@@ -612,6 +717,10 @@ function renderOrders() {
                 expensesHtml = '<div class="empty" style="padding:6px 0; font-size:12px;">Расходов нет</div>';
             }
 
+            let typeOptions = WORK_TYPES.map(t =>
+                `<option value="${t}" ${o.workType === t ? 'selected' : ''}>${t}</option>`
+            ).join('');
+
             return `
             <div class="card" style="border-color:#ffc107;">
                 <div class="card-header">
@@ -621,17 +730,32 @@ function renderOrders() {
                     👤 ${escapeHtml(o.clientName)} · 🚗 ${escapeHtml(o.carModel)}${o.carPlate ? ' (' + escapeHtml(o.carPlate) + ')' : ''}
                 </small>
 
+                <label>Вид работ:</label>
+                <select id="editWorkType_${i}">${typeOptions}</select>
+
                 <label>Описание работ:</label>
                 <input type="text" id="editWork_${i}" value="${escapeAttr(o.work)}" />
 
+                <label>Статус:</label>
+                <select id="editStatus_${i}">
+                    <option value="in_progress" ${o.status === 'in_progress' ? 'selected' : ''}>В работе</option>
+                    <option value="done" ${o.status === 'done' ? 'selected' : ''}>Готов</option>
+                </select>
+
                 <label>Стоимость работ (руб.):</label>
                 <input type="number" id="editCost_${i}" value="${o.cost || 0}" />
+
+                <label>Дата принятия в работу:</label>
+                <input type="date" id="editAccepted_${i}" value="${o.acceptedAt || ''}" />
 
                 <label>Срок выполнения:</label>
                 <input type="date" id="editDeadline_${i}" value="${o.deadline || ''}" />
 
                 <label>Предоплата (руб.):</label>
                 <input type="number" id="editPrepayment_${i}" value="${o.prepayment || 0}" />
+
+                <label>Комментарий:</label>
+                <textarea id="editComment_${i}" rows="2">${escapeHtml(o.comment || '')}</textarea>
 
                 <div class="sub-section">
                     <div class="sub-title">💸 Расходы</div>
@@ -652,7 +776,9 @@ function renderOrders() {
 
         const expensesTotal = (o.expenses || []).reduce((s, e) => s + e.amount, 0);
         const profit = (o.cost || 0) - expensesTotal;
-        const dl = getDeadlineInfo(o.deadline);
+        const dl = getDeadlineInfo(o.deadline, o.status);
+        const statusLabel = o.status === 'done' ? '✅ Готов' : '🔧 В работе';
+        const statusCls = o.status === 'done' ? 'status-done' : 'status-in_progress';
 
         let expensesBlock = '';
         if (o.expenses && o.expenses.length > 0) {
@@ -681,6 +807,18 @@ function renderOrders() {
             </div>
 
             <div class="order-row">
+                <span class="label">Статус:</span>
+                <span><span class="badge ${statusCls}">${statusLabel}</span></span>
+            </div>
+            <div class="order-row">
+                <span class="label">Вид работ:</span>
+                <span><span class="badge type">${escapeHtml(o.workType || 'не указан')}</span></span>
+            </div>
+            <div class="order-row">
+                <span class="label">Принят в работу:</span>
+                <span>${formatAccepted(o.acceptedAt)}</span>
+            </div>
+            <div class="order-row">
                 <span class="label">Срок:</span>
                 <span><span class="badge ${dl.cls}">${dl.text}</span></span>
             </div>
@@ -699,6 +837,8 @@ function renderOrders() {
 
             ${expensesBlock}
 
+            ${o.comment ? `<div class="order-comment">💬 ${escapeHtml(o.comment)}</div>` : ''}
+
             <div class="order-total">
                 Прибыль: <span class="${profit >= 0 ? 'profit' : 'loss'}">${profit.toFixed(0)} ₽</span>
             </div>
@@ -707,7 +847,70 @@ function renderOrders() {
     }).join('');
 }
 
-// ---------- ОЧИСТКА ----------
+// ---------- Итоги ----------
+function calcTotals() {
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    let total = { count: 0, cost: 0, expense: 0, profit: 0 };
+    let month = { count: 0, cost: 0, expense: 0, profit: 0 };
+
+    orders.forEach(o => {
+        const exp = (o.expenses || []).reduce((s, e) => s + e.amount, 0);
+        const cost = o.cost || 0;
+        const profit = cost - exp;
+
+        total.count++;
+        total.cost += cost;
+        total.expense += exp;
+        total.profit += profit;
+
+        let created = null;
+        if (o.createdAt) created = new Date(o.createdAt);
+        else if (o.date) {
+            const parts = o.date.split('.');
+            if (parts.length === 3) created = new Date(parts[2], parts[1] - 1, parts[0]);
+        }
+
+        if (created && created >= monthStart) {
+            month.count++;
+            month.cost += cost;
+            month.expense += exp;
+            month.profit += profit;
+        }
+    });
+
+    return { total, month };
+}
+
+function renderTotals() {
+    const t = calcTotals();
+    const elTotal = document.getElementById('totalsTotal');
+    const elMonth = document.getElementById('totalsMonth');
+    if (!elTotal || !elMonth) return;
+
+    function box(title, value, sub, cls) {
+        return `<div class="total-box">
+            <div class="total-title">${title}</div>
+            <div class="total-value ${cls || ''}">${value}</div>
+            ${sub ? `<div class="total-sub">${sub}</div>` : ''}
+        </div>`;
+    }
+
+    elTotal.innerHTML =
+        box('Заказов', t.total.count) +
+        box('Прибыль', t.total.profit.toFixed(0) + ' ₽', '', t.total.profit >= 0 ? 'profit' : 'loss') +
+        box('Работ на сумму', t.total.cost.toFixed(0) + ' ₽') +
+        box('Расходов', t.total.expense.toFixed(0) + ' ₽');
+
+    elMonth.innerHTML =
+        box('Заказов', t.month.count) +
+        box('Прибыль', t.month.profit.toFixed(0) + ' ₽', '', t.month.profit >= 0 ? 'profit' : 'loss') +
+        box('Работ на сумму', t.month.cost.toFixed(0) + ' ₽') +
+        box('Расходов', t.month.expense.toFixed(0) + ' ₽');
+}
+
+// ---------- Очистка ----------
 function clearAll() {
     if (!confirm('Удалить ВСЕ данные? Это действие необратимо!')) return;
     clients = []; orders = []; tempCars = []; tempExpenses = [];
@@ -718,7 +921,7 @@ function clearAll() {
     saveToFirebase();
 }
 
-// ---------- ВСПОМОГАТЕЛЬНЫЕ ----------
+// ---------- Вспомогательные ----------
 function escapeHtml(text) {
     if (text === undefined || text === null) return '';
     const div = document.createElement('div');
@@ -745,11 +948,12 @@ function renderAll() {
     renderCarPicker();
     updateOrderFormVisibility();
     renderOrders();
+    renderTotals();
     updateVersionDisplay();
     renderTempCars();
     renderTempExpenses();
 }
 
-// ---------- СТАРТ ----------
+// ---------- Старт ----------
 init();
-console.log('🔧 Автосервис Админ v7.1 — Firebase Sync');
+console.log('🔧 Автосервис Админ v8.0 — расширенная версия');
