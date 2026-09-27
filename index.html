@@ -26,7 +26,7 @@
             box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         }
         .section h2 { font-size: 16px; margin-bottom: 12px; }
-        input, textarea {
+        input, textarea, select {
             width: 100%;
             padding: 10px;
             margin-bottom: 8px;
@@ -35,7 +35,9 @@
             font-size: 14px;
             background: var(--tg-theme-bg-color, #fff);
             color: var(--tg-theme-text-color, #000);
+            font-family: inherit;
         }
+        textarea { resize: vertical; min-height: 50px; }
         label {
             display: block;
             font-size: 12px;
@@ -196,6 +198,15 @@
             justify-content: space-between;
             padding: 2px 0;
         }
+        .order-comment {
+            margin-top: 6px;
+            padding: 6px 8px;
+            background: rgba(46, 166, 255, 0.08);
+            border-left: 3px solid #2ea6ff;
+            border-radius: 4px;
+            font-size: 12px;
+            font-style: italic;
+        }
         .order-total {
             margin-top: 8px;
             padding-top: 8px;
@@ -218,6 +229,9 @@
         .badge.overdue { background: #ffcccc; color: #a00; }
         .badge.today { background: #fff3cd; color: #856404; }
         .badge.ok { background: #d4edda; color: #155724; }
+        .badge.status-in_progress { background: #cfe2ff; color: #084298; }
+        .badge.status-done { background: #d4edda; color: #155724; }
+        .badge.type { background: #e2e3e5; color: #41464b; }
 
         .empty { text-align: center; color: #888; font-size: 14px; padding: 20px 0; }
 
@@ -245,6 +259,61 @@
         }
         .sync-dot.ok { background: #28a745; }
         .sync-dot.error { background: #dc3545; }
+
+        .totals-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+        .total-box {
+            background: rgba(0,0,0,0.04);
+            border-radius: 8px;
+            padding: 10px;
+        }
+        .total-box .total-title {
+            font-size: 11px;
+            color: #888;
+            margin-bottom: 4px;
+            text-transform: uppercase;
+        }
+        .total-box .total-value {
+            font-size: 16px;
+            font-weight: 700;
+        }
+        .total-box .total-value.profit { color: #28a745; }
+        .total-box .total-value.loss { color: #dc3545; }
+        .total-box .total-sub {
+            font-size: 11px;
+            color: #888;
+            margin-top: 2px;
+        }
+        .totals-header {
+            font-size: 13px;
+            font-weight: 600;
+            margin: 12px 0 6px 0;
+            color: #666;
+        }
+
+        .filters {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+        .filter-btn {
+            width: auto;
+            padding: 6px 12px;
+            font-size: 12px;
+            border-radius: 14px;
+            margin: 0;
+            background: #e0e0e0;
+            color: #000;
+            font-weight: 500;
+        }
+        .filter-btn.active {
+            background: var(--tg-theme-button-color, #2ea6ff);
+            color: #fff;
+        }
     </style>
 </head>
 <body>
@@ -252,8 +321,10 @@
 
     <div class="section">
         <h2>👤 Клиенты</h2>
+        <input type="text" id="searchInput" placeholder="🔍 Поиск по ФИО, телефону, авто..." oninput="onSearchInput()" />
         <input type="text" id="clientName" placeholder="ФИО клиента" />
         <input type="tel" id="clientPhone" placeholder="Телефон" />
+        <textarea id="clientComment" placeholder="Комментарий (необязательно)" rows="2"></textarea>
 
         <div class="sub-section">
             <div class="sub-title">🚗 Автомобили клиента</div>
@@ -270,6 +341,12 @@
     <div class="section">
         <h2>📋 Заказы</h2>
 
+        <div class="filters">
+            <button class="filter-btn active" data-status="all" onclick="setOrderFilter('all')">Все</button>
+            <button class="filter-btn" data-status="in_progress" onclick="setOrderFilter('in_progress')">В работе</button>
+            <button class="filter-btn" data-status="done" onclick="setOrderFilter('done')">Готовые</button>
+        </div>
+
         <div class="sub-section">
             <div class="sub-title">1. Выберите клиента:</div>
             <div id="clientPicker" class="picker-list">
@@ -283,11 +360,22 @@
         </div>
 
         <div id="orderFormSection" style="display:none;">
+            <label>Вид работ:</label>
+            <select id="orderWorkType">
+                <option value="Слесарные работы">Слесарные работы</option>
+                <option value="Малярные работы">Малярные работы</option>
+                <option value="Кузовные работы">Кузовные работы</option>
+                <option value="Арматурные работы">Арматурные работы</option>
+            </select>
+
             <label>Описание работ:</label>
             <input type="text" id="orderWork" placeholder="Напр. Замена масла" />
 
             <label>Стоимость работ (руб.):</label>
             <input type="number" id="orderCost" placeholder="0" />
+
+            <label>Дата принятия в работу:</label>
+            <input type="date" id="orderAccepted" />
 
             <label>Срок выполнения:</label>
             <input type="date" id="orderDeadline" />
@@ -295,8 +383,11 @@
             <label>Предоплата (руб.):</label>
             <input type="number" id="orderPrepayment" placeholder="0" />
 
+            <label>Комментарий к заказу:</label>
+            <textarea id="orderComment" placeholder="Заметки, договорённости..." rows="2"></textarea>
+
             <div class="sub-section">
-                <div class="sub-title">💸 Расходы по работе</div>
+                <div class="sub-title">💸 Расходы (необязательно)</div>
                 <input type="text" id="expenseDesc" placeholder="Напр. Масло Mobil 1" />
                 <input type="number" id="expenseAmount" placeholder="Сумма (руб.)" />
                 <button class="btn-secondary" onclick="addExpenseToList()">➕ Добавить расход</button>
@@ -307,6 +398,14 @@
         </div>
 
         <div id="ordersList"><div class="empty">Нет заказов</div></div>
+    </div>
+
+    <div class="section">
+        <h2>📊 Итоги</h2>
+        <div class="totals-header">За всё время</div>
+        <div class="totals-grid" id="totalsTotal"></div>
+        <div class="totals-header">За текущий месяц</div>
+        <div class="totals-grid" id="totalsMonth"></div>
     </div>
 
     <div class="section">
