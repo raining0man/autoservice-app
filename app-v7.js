@@ -1,6 +1,7 @@
 // ============================================================
-// Автосервис Админ v13.4 — Firebase Sync
-// Клиенты отображаются в обратном порядке: новые сверху
+// Автосервис Админ v13.5 — Firebase Sync
+// + Дата обращения в заказах
+// + Клиенты в обратном порядке (новые сверху)
 // ============================================================
 
 const firebaseConfig = {
@@ -66,6 +67,10 @@ const MONTH_NAMES = ['Январь', 'Февраль', 'Март', 'Апрель
 
 function genId(prefix) {
     return prefix + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+function todayISO() {
+    return new Date().toISOString().split('T')[0];
 }
 
 function toast(message, type) {
@@ -177,7 +182,9 @@ function migrateData() {
         if (!o.workType) o.workType = 'Слесарные работы';
         if (!o.status) o.status = 'in_progress';
         if (!o.comment) o.comment = '';
-        if (!o.acceptedAt) o.acceptedAt = '';
+        if (o.acceptedAt === undefined) o.acceptedAt = '';
+        if (o.contactDate === undefined) o.contactDate = '';
+        if (!o.deadline) o.deadline = '';
         return o;
     });
     businessExpenses = (businessExpenses || []).map(e => {
@@ -465,13 +472,11 @@ function onSearchInput() {
     renderClients();
 }
 
-// ---------- РЕНДЕР КЛИЕНТОВ (новые сверху) ----------
 function renderClients() {
     const container = document.getElementById('clientsList');
     if (!container) return;
     if (clients.length === 0) { container.innerHTML = '<div class="empty">Нет клиентов</div>'; return; }
 
-    // Формируем массив с индексами, фильтруем, потом реверсируем — новые сверху
     const filtered = clients.map((c, i) => ({ ...c, _idx: i }))
         .filter(c => clientMatchesSearch(c, searchQuery))
         .reverse();
@@ -554,7 +559,6 @@ function renderClients() {
     }).join('');
 }
 
-// ---------- ПИКЕР КЛИЕНТОВ (новые сверху) ----------
 function renderClientPicker() {
     const el = document.getElementById('clientPicker');
     if (!el) return;
@@ -563,7 +567,6 @@ function renderClientPicker() {
         selectedClientIdx = null;
         return;
     }
-    // Формируем массив с индексами и реверсируем — новые сверху
     const reversed = clients.map((c, i) => ({ ...c, _idx: i })).reverse();
     el.innerHTML = reversed.map(c => `
         <button class="picker-btn ${selectedClientIdx === c._idx ? 'active' : ''}" onclick="selectClient(${c._idx})">
@@ -609,8 +612,12 @@ function updateOrderFormVisibility() {
     if (!form) return;
     const show = (selectedClientIdx !== null && selectedCarIdx !== null);
     form.style.display = show ? 'block' : 'none';
-    if (show && !document.getElementById('orderAccepted').value) {
-        document.getElementById('orderAccepted').value = new Date().toISOString().split('T')[0];
+    if (show) {
+        // Автозаполнение дат, если пустые
+        const contactEl = document.getElementById('orderContactDate');
+        if (contactEl && !contactEl.value) contactEl.value = todayISO();
+        const acceptedEl = document.getElementById('orderAccepted');
+        if (acceptedEl && !acceptedEl.value) acceptedEl.value = todayISO();
     }
 }
 
@@ -622,6 +629,7 @@ function addOrder() {
     const work = document.getElementById('orderWork').value.trim();
     const status = document.getElementById('orderStatus').value;
     const cost = parseFloat(document.getElementById('orderCost').value) || 0;
+    const contactDate = document.getElementById('orderContactDate').value;
     const acceptedAt = document.getElementById('orderAccepted').value;
     const deadline = document.getElementById('orderDeadline').value;
     const prepayment = parseFloat(document.getElementById('orderPrepayment').value) || 0;
@@ -639,14 +647,14 @@ function addOrder() {
         carId: car.id,
         carModel: car.model,
         carPlate: car.plate,
-        workType, work, status, cost, acceptedAt, deadline, prepayment, comment,
+        workType, work, status, cost, contactDate, acceptedAt, deadline, prepayment, comment,
         expenses: [...tempExpenses],
         date: new Date().toLocaleDateString('ru-RU'),
         createdAt: new Date().toISOString()
     });
 
     tempExpenses = [];
-    ['orderWork', 'orderCost', 'orderAccepted', 'orderDeadline', 'orderPrepayment', 'orderComment'].forEach(id => document.getElementById(id).value = '');
+    ['orderWork', 'orderCost', 'orderContactDate', 'orderAccepted', 'orderDeadline', 'orderPrepayment', 'orderComment'].forEach(id => document.getElementById(id).value = '');
     document.getElementById('orderStatus').value = 'in_progress';
     renderTempExpenses();
     selectedClientIdx = null;
@@ -683,6 +691,7 @@ function saveEditOrder() {
     const work = document.getElementById('editWork_' + i).value.trim();
     const status = document.getElementById('editStatus_' + i).value;
     const cost = parseFloat(document.getElementById('editCost_' + i).value) || 0;
+    const contactDate = document.getElementById('editContactDate_' + i).value;
     const acceptedAt = document.getElementById('editAccepted_' + i).value;
     const deadline = document.getElementById('editDeadline_' + i).value;
     const prepayment = parseFloat(document.getElementById('editPrepayment_' + i).value) || 0;
@@ -690,6 +699,7 @@ function saveEditOrder() {
     if (!work) { toastErr('Введите описание работ'); return; }
 
     o.workType = workType; o.work = work; o.status = status; o.cost = cost;
+    o.contactDate = contactDate;
     o.acceptedAt = acceptedAt; o.deadline = deadline; o.prepayment = prepayment;
     o.comment = comment; o.expenses = [...editOrderExpenses];
 
@@ -736,7 +746,7 @@ function getDeadlineInfo(deadline, status) {
     return { text: f + ' (через ' + diff + ' дн.)', cls: 'ok' };
 }
 
-function formatAccepted(dateStr) {
+function formatDate(dateStr) {
     if (!dateStr) return '—';
     const d = parseDate(dateStr);
     if (!d) return dateStr;
@@ -822,6 +832,9 @@ function renderOrders() {
                 <label>Стоимость работ (руб.):</label>
                 <input type="number" id="editCost_${i}" value="${o.cost || 0}" />
 
+                <label>Дата обращения:</label>
+                <input type="date" id="editContactDate_${i}" value="${o.contactDate || ''}" />
+
                 <label>Дата принятия в работу:</label>
                 <input type="date" id="editAccepted_${i}" value="${o.acceptedAt || ''}" />
 
@@ -889,8 +902,12 @@ function renderOrders() {
                 <span><span class="badge ${st.cls}">${st.label}</span></span>
             </div>
             <div class="order-row">
+                <span class="label">Дата обращения:</span>
+                <span>${formatDate(o.contactDate)}</span>
+            </div>
+            <div class="order-row">
                 <span class="label">Принят в работу:</span>
-                <span>${formatAccepted(o.acceptedAt)} <span class="order-elapsed">${elapsed}</span></span>
+                <span>${formatDate(o.acceptedAt)} <span class="order-elapsed">${elapsed}</span></span>
             </div>
             <div class="order-row">
                 <span class="label">Срок:</span>
@@ -1418,4 +1435,4 @@ window.addEventListener('error', function(ev) {
 });
 
 init();
-console.log('🔧 Автосервис Админ v13.4');
+console.log('🔧 Автосервис Админ v13.5');
