@@ -177,6 +177,7 @@
             align-items: center;
             justify-content: space-between;
             gap: 8px;
+            margin-top: 16px;
             margin-bottom: 10px;
             background: rgba(0,0,0,0.04);
             border-radius: 8px;
@@ -239,7 +240,6 @@
 <body>
     <h1>🔧 Автосервис Админ</h1>
 
-    <!-- === КЛИЕНТЫ === -->
     <div class="section" id="section-clients">
         <h2 onclick="toggleSection('clients')">
             <span class="collapse-arrow" id="arrow-clients">▼</span> 👤 Клиенты
@@ -265,7 +265,6 @@
         </div>
     </div>
 
-    <!-- === ЗАКАЗЫ === -->
     <div class="section" id="section-orders">
         <h2 onclick="toggleSection('orders')">
             <span class="collapse-arrow" id="arrow-orders">▼</span> 📋 Заказы
@@ -316,6 +315,9 @@
                 <label>Стоимость работ (руб.):</label>
                 <input type="number" id="orderCost" placeholder="0" />
 
+                <label>Дата обращения:</label>
+                <input type="date" id="orderContactDate" />
+
                 <label>Дата принятия в работу:</label>
                 <input type="date" id="orderAccepted" />
 
@@ -343,7 +345,6 @@
         </div>
     </div>
 
-    <!-- === РАСХОДЫ БИЗНЕСА === -->
     <div class="section" id="section-bizexp">
         <h2 onclick="toggleSection('bizexp')">
             <span class="collapse-arrow" id="arrow-bizexp">▼</span> 💼 Расходы бизнеса
@@ -354,7 +355,7 @@
                 <label>Категория:</label>
                 <select id="bizExpCategory" onchange="onBizExpCategoryChange()">
                     <option value="аренда">🏠 аренда</option>
-                    <option value="ку">💡 ку</option>
+                    <option value="ку">💡 ку / жкх</option>
                     <option value="интернет">🌐 интернет</option>
                     <option value="маркетинг">📣 маркетинг</option>
                     <option value="оборудование">🔧 оборудование</option>
@@ -388,7 +389,6 @@
         </div>
     </div>
 
-    <!-- === ОБЩИЕ ИТОГИ === -->
     <div class="section" id="section-totals">
         <h2 onclick="toggleSection('totals')">
             <span class="collapse-arrow" id="arrow-totals">▼</span> 📊 Общие итоги
@@ -406,7 +406,6 @@
         </div>
     </div>
 
-    <!-- === ОПАСНАЯ ЗОНА === -->
     <div class="section" id="section-danger">
         <h2 onclick="toggleSection('danger')">
             <span class="collapse-arrow" id="arrow-danger">▼</span> 🗑 Опасная зона
@@ -423,6 +422,6 @@
 
     <div id="app-toast"></div>
 
-    <script src="app-v7.js"></script>
+    <script src="app-v7.js?v=3"></script>
 </body>
 </html>
