@@ -1,7 +1,6 @@
 // ============================================================
-// Автосервис Админ v13.5 — Firebase Sync
-// + Дата обращения в заказах
-// + Клиенты в обратном порядке (новые сверху)
+// Автосервис Админ v13.6 — Firebase Sync
+// + Экспорт / импорт данных (резервная копия)
 // ============================================================
 
 const firebaseConfig = {
@@ -103,7 +102,7 @@ function toggleSection(key) {
 }
 function applyCollapseState() {
     const state = loadUiState();
-    ['clients', 'orders', 'bizexp', 'totals', 'danger'].forEach(key => {
+    ['clients', 'orders', 'bizexp', 'totals', 'backup', 'danger'].forEach(key => {
         const section = document.getElementById('section-' + key);
         if (!section) return;
         if (state[key]) section.classList.add('collapsed');
@@ -308,6 +307,186 @@ async function init() {
         isReady = true;
     }
 }
+
+// ============================================================
+//  ЭКСПОРТ / ИМПОРТ ДАННЫХ
+// ============================================================
+
+function buildExportObject() {
+    return {
+        app: 'autoservice',
+        formatVersion: 1,
+        exportedAt: new Date().toISOString(),
+        version: dataVersion,
+        clients: clients,
+        orders: orders,
+        businessExpenses: businessExpenses
+    };
+}
+
+function exportData() {
+    try {
+        const obj = buildExportObject();
+        const json = JSON.stringify(obj, null, 2);
+
+        // Имя файла с датой и временем
+        const now = new Date();
+        const pad = n => String(n).padStart(2, '0');
+        const fname = 'autoservice_backup_' +
+            now.getFullYear() + '-' +
+            pad(now.getMonth() + 1) + '-' +
+            pad(now.getDate()) + '_' +
+            pad(now.getHours()) + '-' +
+            pad(now.getMinutes()) + '.json';
+
+        // Скачивание через blob
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fname;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }, 100);
+
+        // Также сохраняем в поле для резервного способа
+        const area = document.getElementById('jsonExportArea');
+        if (area) area.value = json;
+
+        toastOk('Файл сохраняется: ' + fname);
+        console.log('📤 Экспорт:', obj.clients.length, 'клиентов,', obj.orders.length, 'заказов,', obj.businessExpenses.length, 'расходов');
+    } catch (e) {
+        console.error('Ошибка экспорта:', e);
+        toastErr('Ошибка сохранения: ' + e.message);
+    }
+}
+
+function toggleJsonView() {
+    const box = document.getElementById('jsonViewBox');
+    if (!box) return;
+    if (box.style.display === 'none') {
+        const area = document.getElementById('jsonExportArea');
+        if (area && !area.value) {
+            area.value = JSON.stringify(buildExportObject(), null, 2);
+        }
+        box.style.display = 'block';
+    } else {
+        box.style.display = 'none';
+    }
+}
+
+function togglePasteView() {
+    const box = document.getElementById('jsonPasteBox');
+    if (!box) return;
+    box.style.display = box.style.display === 'none' ? 'block' : 'none';
+}
+
+function copyJsonToClipboard() {
+    const area = document.getElementById('jsonExportArea');
+    if (!area) return;
+    if (!area.value) {
+        area.value = JSON.stringify(buildExportObject(), null, 2);
+    }
+    area.select();
+    try {
+        document.execCommand('copy');
+        toastOk('Скопировано в буфер');
+    } catch (e) {
+        navigator.clipboard?.writeText(area.value).then(() => toastOk('Скопировано в буфер')).catch(() => toastErr('Не удалось скопировать'));
+    }
+}
+
+function importDataFromFile(event) {
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        try {
+            const parsed = JSON.parse(e.target.result);
+            applyImportedData(parsed);
+        } catch (err) {
+            toastErr('Файл повреждён или не JSON');
+            console.error(err);
+        }
+    };
+    reader.onerror = () => toastErr('Не удалось прочитать файл');
+    reader.readAsText(file);
+    event.target.value = '';
+}
+
+function importDataFromText() {
+    const area = document.getElementById('jsonPasteArea');
+    if (!area || !area.value.trim()) { toastErr('Вставьте JSON в поле'); return; }
+    try {
+        const parsed = JSON.parse(area.value.trim());
+        applyImportedData(parsed);
+        area.value = '';
+        document.getElementById('jsonPasteBox').style.display = 'none';
+    } catch (err) {
+        toastErr('Ошибка: неверный JSON');
+        console.error(err);
+    }
+}
+
+function applyImportedData(parsed) {
+    // Валидация
+    if (!parsed || typeof parsed !== 'object') {
+        toastErr('Неверный формат данных');
+        return;
+    }
+    if (!Array.isArray(parsed.clients) && !Array.isArray(parsed.orders) && !Array.isArray(parsed.businessExpenses)) {
+        toastErr('В файле нет знакомых данных (clients/orders/businessExpenses)');
+        return;
+    }
+
+    const cCount = (parsed.clients || []).length;
+    const oCount = (parsed.orders || []).length;
+    const eCount = (parsed.businessExpenses || []).length;
+
+    const confirmMsg = 'Загрузить данные из файла?\n\n' +
+        'Клиентов: ' + cCount + '\n' +
+        'Заказов: ' + oCount + '\n' +
+        'Расходов: ' + eCount + '\n\n' +
+        '⚠️ ВСЕ ТЕКУЩИЕ ДАННЫЕ БУДУТ ПОЛНОСТЬЮ ЗАМЕНЕНЫ.';
+
+    if (!confirm(confirmMsg)) {
+        toast('Загрузка отменена');
+        return;
+    }
+
+    // Применяем
+    clients = parsed.clients || [];
+    orders = parsed.orders || [];
+    businessExpenses = parsed.businessExpenses || [];
+
+    // Мигрируем (дополняем поля)
+    migrateData();
+
+    // Пересобираем все индексы (просто на всякий случай, чтобы не было проблем)
+    selectedClientIdx = null;
+    selectedCarIdx = null;
+    editClientIdx = null;
+    editClientCars = [];
+    editOrderIdx = null;
+    editOrderExpenses = [];
+    editBizExpIdx = null;
+
+    // Рендерим
+    renderAll();
+
+    // Сохраняем в облако (с инкрементом версии, чтобы не перезаписалось старой)
+    saveToFirebase();
+
+    toastOk('Загружено: ' + cCount + ' клиентов, ' + oCount + ' заказов');
+    console.log('📥 Импорт:', cCount, 'клиентов,', oCount, 'заказов,', eCount, 'расходов');
+}
+
+// ============================================================
+//  КЛИЕНТЫ
+// ============================================================
 
 function addCarToList() {
     const model = document.getElementById('carModel').value.trim();
@@ -613,7 +792,6 @@ function updateOrderFormVisibility() {
     const show = (selectedClientIdx !== null && selectedCarIdx !== null);
     form.style.display = show ? 'block' : 'none';
     if (show) {
-        // Автозаполнение дат, если пустые
         const contactEl = document.getElementById('orderContactDate');
         if (contactEl && !contactEl.value) contactEl.value = todayISO();
         const acceptedEl = document.getElementById('orderAccepted');
@@ -1435,4 +1613,4 @@ window.addEventListener('error', function(ev) {
 });
 
 init();
-console.log('🔧 Автосервис Админ v13.5');
+console.log('🔧 Автосервис Админ v13.6');
